@@ -1,0 +1,43 @@
+{
+  "d": {
+    "__type": "PSLib.Integrations.CatSectionResponse",
+    "status": "success",
+    "statusmessage": "",
+    "Locale": "nb-NO",
+    "Detail": [
+      {
+        "recordID": "00000000-0000-4000-8000-000000000001",
+        "loanID": "11111111-1111-4111-8111-111111111111",
+        "title": "Example book A",
+        "author": "",
+        "subtitle": "Sample, Alex",
+        "dueDisplay": "19.11.2026<br />Example Library",
+        "dueObject": "/Date(1795046400000)/",
+        "canRenew": true,
+        "renewalCost": 0,
+        "RenewalsRemaining": -1,
+        "Overdue": false,
+        "Source": "ILS",
+        "imageUrl": "",
+        "ISBN": ""
+      },
+      {
+        "recordID": "00000000-0000-4000-8000-000000000002",
+        "loanID": "22222222-2222-4222-8222-222222222222",
+        "title": "Example book B",
+        "author": "",
+        "subtitle": "",
+        "dueDisplay": "19.11.2026<br />Example Library",
+        "dueObject": "/Date(1795046400000)/",
+        "canRenew": false,
+        "renewalCost": 0,
+        "RenewalsRemaining": 0,
+        "Overdue": false,
+        "Source": "ILS",
+        "imageUrl": "",
+        "ISBN": ""
+      }
+    ],
+    "Detail2": null
+  }
+}

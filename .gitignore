@@ -24,13 +24,13 @@ axiell_inspect/
 app1.min.js
 
 # Account output or book records captured during testing
-loans.json
-loans_*.json
-axiell-records.json
-axiell-covers/
-axiell-real-covers/
-raw-responses/
-real-captures/
+/loans.json
+/loans_*.json
+/axiell-records.json
+/axiell-covers/
+/axiell-real-covers/
+/raw-responses/
+/real-captures/
 
 # Python and tooling
 __pycache__/
