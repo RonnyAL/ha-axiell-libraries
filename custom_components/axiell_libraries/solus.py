@@ -138,7 +138,7 @@ def _section(payload: Any, *, authentication: bool = False) -> dict:
     if not isinstance(detail, dict):
         raise SolusProtocolError("Malformed Solus response") from None
     if detail.get("status") != "success":
-        if authentication:
+        if authentication and detail.get("status") == "failure":
             raise SolusAuthError("Solus authentication rejected") from None
         raise SolusProtocolError("Unsuccessful Solus response") from None
     return detail

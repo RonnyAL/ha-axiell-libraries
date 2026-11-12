@@ -504,3 +504,15 @@ async def test_clients_do_not_share_tokens_or_change_session_defaults():
             "TEST_SESSION",
             "TEST_OTHER_SESSION",
         ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [None, "TEST_UNKNOWN_STATUS", 123])
+async def test_malformed_auth_status_is_protocol_failure(status):
+    """A provider/schema outage must not be reported as a rejected PIN."""
+    with aioresponses() as mock:
+        bootstrap(mock)
+        mock.post(endpoint("LoginPreSession"), payload={"d": {"status": status}})
+        async with aiohttp.ClientSession() as session:
+            with pytest.raises(SolusProtocolError):
+                await client(session).async_login(CARD, PIN)

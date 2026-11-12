@@ -151,3 +151,31 @@ The offline tests mock the HTTP request boundary and verify bootstrap ordering,
 payloads, safe routing, and separate client tokens. They do not verify live
 Solus behavior or actual server cookie issuance; a local owner-run probe with
 credentials outside Git remains necessary.
+
+## Configuration identity and validation
+
+The config flow normalizes card numbers by removing all Unicode whitespace,
+while preserving case and leading zeros. Its stable unique ID is the SHA-256
+hex digest of UTF-8 `AppID:normalized_card`; a duplicate is rejected before
+login. A new user flow calls `secrets.token_hex(8)` once and retains that value
+through selection, manual lookup, and credential retries. Successful entries
+store `location_id`, `library_name`, `app_id`, `server_url`, `card`, `pin`, and
+`device_id`. PIN-only reauthentication and reconfiguration update the PIN while
+keeping every other identity field and the unique ID unchanged.
+
+Discovery and each login validation use separate HA-managed sessions with
+isolated cookie jars. Validation sessions are detached in `finally` blocks,
+leaving the HA connector open; validation tokens and cookies are discarded.
+Nearby selection filters only returned local candidates. Manual exact LocationID
+lookup remains available on empty results, missing coordinates or provider
+failure. Provider errors produce static UI messages without logging exception
+text or account values. The PIN resides in HA config entry storage, which is
+not a dedicated secrets vault.
+
+For login JSON, only explicit `d.status: failure` is treated as credential
+rejection; this is the synthetic negative fixture assumption, not a verified
+upstream auth error code. Missing, malformed or unknown statuses raise
+`SolusProtocolError`, including during authentication, and are shown as provider
+failures instead of requesting a new PIN. HTTP 401/403 remains an explicit
+authentication rejection. Exact upstream negative status codes still require a
+local probe by the owner with credentials outside Git.
