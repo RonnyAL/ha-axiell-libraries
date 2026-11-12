@@ -1,0 +1,22 @@
+{
+  "d": {
+    "status": "success",
+    "statusmessage": "",
+    "Detail": [
+      {
+        "UserID": "TEST-CARD-0000",
+        "UserName": "Synthetic User",
+        "AuthToken": "TEST_TOKEN_NOT_VALID",
+        "Loans": null,
+        "Devices": [
+          {
+            "DeviceID": "0123456789abcdef",
+            "Name": "Example test",
+            "Type": "Android"
+          }
+        ]
+      }
+    ],
+    "Detail2": null
+  }
+}

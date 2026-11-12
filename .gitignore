@@ -1,0 +1,48 @@
+# Credentials, secrets and host-specific configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.har
+*.mitm
+*.pcap
+*.pcapng
+mitmproxy-data/
+*.log
+
+# Proprietary / sensitive reverse-engineering materials
+*.apk
+*.xapk
+*.aab
+*.dex
+*.smali
+research/private/
+axiell_inspect/
+app1.min.js
+
+# Account output or book records captured during testing
+loans.json
+loans_*.json
+axiell-records.json
+axiell-covers/
+axiell-real-covers/
+raw-responses/
+real-captures/
+
+# Python and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+.DS_Store
+
+# Local HA configuration/state
+config/.storage/

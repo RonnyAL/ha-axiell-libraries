@@ -1,0 +1,29 @@
+{
+  "d": {
+    "status": "success",
+    "statusmessage": "",
+    "Detail": {
+      "RecordID": "00000000-0000-4000-8000-000000000001",
+      "Title": "Example book A",
+      "Author": "Sample, Alex",
+      "Description": "Synthetic example for offline tests.",
+      "ISBN": "9780000000002",
+      "ISBNList": [
+        "9780000000002"
+      ],
+      "Format": "Bok",
+      "ImageUrl": "https://images.example.org/covers/sample-a.jpg",
+      "ImageUrlLarge": "https://images.example.org/covers/sample-a-large.jpg",
+      "MainMetadata": [
+        {
+          "Key": "Utgiver",
+          "Value": "Sample Press"
+        },
+        {
+          "Key": "Utgitt",
+          "Value": "2026"
+        }
+      ]
+    }
+  }
+}
