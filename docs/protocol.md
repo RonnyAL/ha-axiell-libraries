@@ -60,6 +60,26 @@ Response has outer `d` envelope; `d.status` is `success`, `d.Detail[0].AuthToken
 - `author` may be empty; `subtitle` sometimes contains author. Prefer `RecordGet.Author`.
 - `imageUrl` fields in `LoansGet` may be empty, as may `ISBN`.
 
+### Date parser semantics
+
+The integration reads `dueObject` only and returns an unknown date for missing,
+malformed, or out-of-range values; it never falls back to `dueDisplay` HTML.
+Milliseconds in `/Date(milliseconds)/` represent an instant since the Unix epoch
+in UTC, and the model exposes that instant's UTC calendar date, independent of
+the Home Assistant host timezone. Negative milliseconds are supported.
+
+An optional `+HHMM` or `-HHMM` suffix is accepted only with hours `00`–`23` and
+minutes `00`–`59`. The suffix is validated but not applied to the UTC instant.
+For example, `/Date(1795046400000-1200)/` still yields `2026-11-19`.
+Suffix handling is a defensive parser choice, not a live-verified server variant.
+
+Loan authors use nonempty `author`, then `subtitle`, as a fallback. Catalogue
+enrichment replaces that fallback with a nonempty `RecordGet.Author`, while
+missing catalogue fields leave available loan metadata intact. Direct `ImageUrl`
+is preferred, with `ImageUrlLarge` as fallback. Empty or malformed covers,
+non-HTTPS URLs, embedded credentials, and `ItemImage.aspx` placeholders are
+discarded. `MainMetadata` is retained as optional string key/value metadata.
+
 ## Useful RecordGet fields
 
 - `RecordID`, `Title`, `Author`, `Description`, `ISBN`, `ISBNList`, `Format`, `ImageUrl`, `ImageUrlLarge`, `MainMetadata` (Key/Value array, including publisher and year).
