@@ -1,0 +1,11 @@
+{
+  "domain": "axiell_libraries",
+  "name": "Axiell Libraries",
+  "codeowners": ["@RonnyAL"],
+  "config_flow": true,
+  "documentation": "https://github.com/RonnyAL/ha-axiell-libraries",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/RonnyAL/ha-axiell-libraries/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

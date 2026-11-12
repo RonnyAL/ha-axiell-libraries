@@ -94,3 +94,60 @@ discarded. `MainMetadata` is retained as optional string key/value metadata.
 - API schema is not a stable contractual guarantee. Unit tests need to mock network responses.
 
 See `tests/fixtures/` for *synthetic, non-user* JSON samples.
+
+## Client implementation contract and remaining assumptions
+
+`solus.py` exposes `async_lookup_location(session, location_id) -> Library` and
+`async_find_nearby(session, latitude, longitude) -> list[Library]`. `Library` has
+`location_id`, `name`, `app_id`, and a resolved `server_url` processing origin.
+The caller owns an isolated HA-managed `aiohttp.ClientSession` and its cookie
+jar for each flow/account. The transport reuses that session for Auth.aspx and
+API requests, does not modify its default headers, and does not close it.
+`SolusClient(session, app_id, server_url, device_id, locale="nb-NO")` never
+creates a DeviceID. Authentication state remains on the client in memory.
+
+The lookup implementation accepts a locator object, optionally wrapped in `d`
+(or JSON serialized), with `Status: OK`, `LocationID`, `Name`, `AppID`, and
+`ServerUrl`. Nearby uses the same fields in a `Detail` list. These precise
+locator field shapes and nearby behavior need local live validation: the
+checked-in observations do not include a complete locator response fixture.
+Malformed responses fail explicitly. `APIUrl` is never used for credentials.
+Both discovery and each login resolve `GET https://repo.sol.us/id/<AppID>/2026.42`
+and use its `Server`. An optional repo `AuthServer` can specify the bootstrap
+origin; otherwise `Server` is used. That optional field is a defensive assumption,
+not a live-verified repo variant.
+
+All dynamic origins must use HTTPS with a single-label subdomain of `sol.us`,
+a root path, no user information, explicit port, query, fragment, control
+characters, or backslash. HTTP redirects are rejected at every stage. A
+`LoginCheckSession` `ServerToUse` must match the processing origin resolved from
+the trusted HTTPS repo before login; moving tokens to another hostname requires
+additional verified routing evidence. This deliberately fails safely if a
+provider introduces a previously unseen routing arrangement.
+
+Bootstrap metadata retains the observed app identity: version `2026.42`, build
+`2026420500`, package `solus.AllAxiell`. `AppID` and `TemplateID` use the selected
+AppID; `DeviceID` and locale come from the caller; `ServerRoot` is the processing
+origin with trailing slash. Device descriptors are deterministic integration
+values: `PlatType`, `PlatModel`, and `DName` are `Home Assistant`, `PlatVer` is
+`1`, and `font` is `100`. Their exact acceptance and the reuse of bootstrap
+metadata plus `AuthToken` for `LoginCheckSession.Request` require a local live
+probe; the sanitized protocol lists these keys but not their verified values.
+
+`async_login(card, pin)` returns the decoded nonempty user-detail list;
+`async_get_loans(user_id)` returns a decoded list, with `[]` representing an
+explicit successful empty account only. `async_get_record(record_id, source)`
+returns an object or `None` for an explicit empty record. Catalogue transport
+errors propagate so the coordinator can handle individual enrichment failures.
+All calls use a 20-second total timeout, no transport retries, and no automatic
+login retries. HTTP 401/403 during login raises `SolusAuthError`; during an
+authenticated data request it clears the token and raises its subclass
+`SolusSessionExpired`, allowing the coordinator to attempt one recovery login.
+Actual expiry codes inside JSON `d.status` are unverified: unknown unsuccessful
+statuses raise `SolusProtocolError` and never trigger speculative login loops.
+All public errors use static messages and suppress sensitive exception context.
+
+The offline tests mock the HTTP request boundary and verify bootstrap ordering,
+payloads, safe routing, and separate client tokens. They do not verify live
+Solus behavior or actual server cookie issuance; a local owner-run probe with
+credentials outside Git remains necessary.

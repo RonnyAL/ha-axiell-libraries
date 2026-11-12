@@ -1,0 +1,7 @@
+# Tested on Python 3.13; Home Assistant supplies aiohttp.
+homeassistant==2026.2.3
+pytest-homeassistant-custom-component==0.13.316
+pytest==9.0.0
+pytest-timeout==2.4.0
+aioresponses==0.7.9
+ruff==0.17.5
