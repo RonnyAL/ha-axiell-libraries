@@ -1,0 +1,4 @@
+# Supported floor: Python 3.14, with matching Core and official test harness.
+-r requirements-test.txt
+homeassistant==2026.11.0
+pytest-homeassistant==2026.11.0

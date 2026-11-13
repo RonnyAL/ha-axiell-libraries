@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import date
+from secrets import token_hex
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -11,7 +12,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.axiell_libraries.const import DOMAIN
 from custom_components.axiell_libraries.solus import (
@@ -57,6 +58,8 @@ def rows():
 def entry(hass, suffix="0"):
     config = MockConfigEntry(
         domain=DOMAIN,
+        version=1,
+        minor_version=1,
         title="Synthetic Library",
         unique_id=f"account-{suffix}",
         data={
@@ -222,15 +225,24 @@ async def test_todo_services_cannot_mutate_library(hass, api, service, data):
     assert await get_items(hass, ids["loans"]) == before
 
 
-async def test_two_entries_reload_and_unload_keep_identity_and_sessions_isolated(
+async def test_existing_v1_entries_reload_and_unload_preserve_data_and_device_identity(
     hass, api
 ):
     shared = async_get_clientsession(hass)
     first = entry(hass)
-    ids_first = await setup(hass, first)
     second = entry(hass, "1")
-    with patch("secrets.token_hex", side_effect=AssertionError("DeviceID regenerated")):
-        ids_second = await setup(hass, second)
+    stored_data = [deepcopy(dict(config.data)) for config in (first, second)]
+
+    def guard_device_id(nbytes=None):
+        """Reject integration DeviceIDs while allowing HA's own auth tokens."""
+        assert nbytes != 8, "DeviceID regenerated"
+        return token_hex(nbytes)
+
+    with patch("secrets.token_hex", side_effect=guard_device_id):
+        ids_first = await setup(hass, first)
+        # Core sets up all entries when the integration is loaded for the first time.
+        assert second.state is ConfigEntryState.LOADED
+        ids_second = entities(hass, second)
         initial_clients = api.clients[:]
         assert initial_clients[0]._session is not initial_clients[1]._session
         assert (
@@ -251,10 +263,24 @@ async def test_two_entries_reload_and_unload_keep_identity_and_sessions_isolated
         assert hass.data["todo"].get_entity(ids_first["loans"]) is None
         assert hass.states.get(ids_second["active_loans"]).state == "3"
         assert not initial_clients[1]._session.closed
+        assert await setup(hass, first) == ids_first
+        assert api.clients[-1]._device_id == DEVICE
+        assert await hass.config_entries.async_unload(first.entry_id)
+        assert api.clients[-1]._session.closed
         assert await hass.config_entries.async_unload(second.entry_id)
         assert initial_clients[1]._session.closed
         assert not shared.connector.closed
-    assert first.data["device_id"] == DEVICE
+    assert [dict(config.data) for config in (first, second)] == stored_data
+    assert [(config.version, config.minor_version) for config in (first, second)] == [
+        (1, 1),
+        (1, 1),
+    ]
+    assert [device for device, _card, _pin in api.logins] == [
+        DEVICE,
+        "fedcba9876543210",
+        DEVICE,
+        DEVICE,
+    ]
 
 
 async def test_reauth_reload_preserves_device_and_entities(hass, api):

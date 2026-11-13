@@ -7,7 +7,6 @@ from pathlib import Path
 
 import aiohttp
 import pytest
-from aioresponses import aioresponses
 
 from custom_components.axiell_libraries.models import Loan
 from custom_components.axiell_libraries.solus import (
@@ -19,6 +18,7 @@ from custom_components.axiell_libraries.solus import (
     async_find_nearby,
     async_lookup_location,
 )
+from tests.http import AiohttpResponses as aioresponses
 
 APP = "TEST-APP"
 SERVER = "https://process-test.sol.us"

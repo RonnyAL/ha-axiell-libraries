@@ -1,0 +1,5 @@
+# Shared offline test and lint tools; Core supplies aiohttp.
+pytest==9.0.3
+pytest-timeout==2.4.0
+aioresponses==0.7.9
+ruff==0.17.5

@@ -94,7 +94,7 @@ def _decode(value: Any) -> Any:
     if isinstance(value, str):
         try:
             return json.loads(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise SolusProtocolError("Malformed Solus response") from None
     return value
 
@@ -126,9 +126,9 @@ async def _request(
                 await response.read()
                 return None
             return await response.json(content_type=None)
-    except (TimeoutError, aiohttp.ClientError):
+    except TimeoutError, aiohttp.ClientError:
         raise SolusConnectionError("Unable to contact Solus") from None
-    except (ValueError, TypeError, UnicodeError):
+    except ValueError, TypeError, UnicodeError:
         raise SolusProtocolError("Malformed Solus response") from None
 
 

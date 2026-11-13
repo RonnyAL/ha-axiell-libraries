@@ -24,7 +24,7 @@ def parse_due_date(raw: str | None) -> date | None:
         return None
     try:
         return (_EPOCH + timedelta(milliseconds=int(match[1]))).date()
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         return None
 
 

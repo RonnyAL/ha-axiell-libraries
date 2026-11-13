@@ -8,12 +8,12 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
 import pytest
-from aioresponses import CallbackResult, aioresponses
+from aioresponses import CallbackResult
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import UpdateFailed
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.axiell_libraries.const import DOMAIN
 from custom_components.axiell_libraries.coordinator import AxiellCoordinator
@@ -26,6 +26,7 @@ from custom_components.axiell_libraries.solus import (
     SolusSessionExpired,
 )
 from custom_components.axiell_libraries.todo import AxiellTodo
+from tests.http import AiohttpResponses as aioresponses
 
 CARD = "TEST-CARD-0000"
 PIN = "TEST_PIN_NOT_VALID"
