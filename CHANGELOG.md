@@ -1,6 +1,23 @@
 # Changelog
 
-## 0.3.0 — prepared, unpublished
+## 0.4.0 — prepared, unpublished
+
+- Add the administrator action `axiell_libraries.renew_loan` for one explicitly
+  selected account and loan; preserve read-only to-do entities.
+- Require manual, expiring confirmation for known fees and each provider prompt;
+  bind single-use consent to the account, issued copy and circulation state.
+- Serialize polling and renewal; drain writes before unload. Reconcile uncertain
+  outcomes without automatically repeating renewal.
+- Return optional small action responses or informative translated errors for
+  pending consent, rejection, uncertain results and successful renewal with a
+  failed HA refresh. Redact known secrets from bounded provider messages.
+- Document manual action usage, privacy limits and existing AppID/TemplateID
+  assumption. Prepare matching version, release notes and manual workflow input.
+
+No live renewal or provider acknowledgement has been tested. This change creates
+no tag or release and changes no repository visibility.
+
+## 0.3.0 — published; installed by the owner
 
 - Expose structured individual loans on Active loans, including separate
   subtitle/author, due date, circulation status and optional catalogue metadata.
@@ -23,6 +40,6 @@
 
 The owner has verified live authentication, all three aggregate sensors and
 Marketplace installation/update. New structured dashboard rendering and covers
-still require owner-run verification. No tag or release has been published for
-this change; the owner's publication hold remains in force. See
+still require owner-run verification. The owner subsequently installed the
+published 0.3.0 release. See
 [release preparation and recovery](docs/releases.md).

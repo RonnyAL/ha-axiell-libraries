@@ -4,16 +4,27 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import AxiellCoordinator
+from .services import async_setup_services
 from .solus import SolusClient
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = (Platform.SENSOR, Platform.TODO)
 type AxiellConfigEntry = ConfigEntry[AxiellCoordinator]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register account actions even when no account is currently loaded."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bool:
@@ -21,6 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bo
     session = async_create_clientsession(
         hass, auto_cleanup=False, cookie_jar=aiohttp.CookieJar()
     )
+    coordinator = None
     try:
         client = SolusClient(
             session,
@@ -29,21 +41,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bo
             entry.data["device_id"],
             entry.data.get("locale", "nb-NO"),
         )
-        coordinator = AxiellCoordinator(hass, entry, client)
+        coordinator = AxiellCoordinator(
+            hass, entry, client, close_session=session.detach
+        )
         await coordinator.async_config_entry_first_refresh()
         entry.runtime_data = coordinator
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except BaseException:
-        # Detach this session, including cancellation; HA owns the connector.
-        session.detach()
+        # Shutdown drains writes before detach, including setup cancellation.
+        if coordinator is not None:
+            await coordinator.async_shutdown()
+        else:
+            session.detach()
         raise
-    entry.async_on_unload(session.detach)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bool:
-    """Unload this account's entities; its unload callback detaches the session."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    """Reject new actions, unload entities and drain before session detach."""
+    coordinator = entry.runtime_data
+    coordinator.async_set_closing(True)
+    try:
+        unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    except BaseException:
+        coordinator.async_set_closing(False)
+        raise
+    if not unloaded:
+        coordinator.async_set_closing(False)
+        return False
+    await coordinator.async_shutdown()
+    return True
 
 
 class AxiellEntity(CoordinatorEntity[AxiellCoordinator]):

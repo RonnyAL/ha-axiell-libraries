@@ -59,9 +59,9 @@ async def test_marketplace_installs_loadable_self_contained_source(
     release = GitHubReleaseModel(
         {
             "id": 30,
-            "tag_name": "v0.3.0",
+            "tag_name": "v0.4.0",
             "target_commitish": "main",
-            "name": "0.3.0",
+            "name": "0.4.0",
             "draft": False,
             "prerelease": False,
             "published_at": "2026-11-13T12:00:00Z",
@@ -80,9 +80,9 @@ async def test_marketplace_installs_loadable_self_contained_source(
     )
     repository = IntegrationRepository(marketplace, "RonnyAL/ha-axiell-libraries")
     await repository._async_update_releases()
-    assert repository.display_available_version == "v0.3.0"
-    assert repository.version_to_install() == "v0.3.0"
-    assert repository.data.published_tags == ["v0.3.0"]
+    assert repository.display_available_version == "v0.4.0"
+    assert repository.version_to_install() == "v0.4.0"
+    assert repository.data.published_tags == ["v0.4.0"]
     repository.repository_manifest = RepositoryManifest.from_dict(
         json.loads(source_archive.read("hacs.json"))
     )
@@ -112,7 +112,7 @@ async def test_marketplace_installs_loadable_self_contained_source(
     repository.ref = f"tags/{repository.version_to_install()}"
     await repository.download_repository_zip()
     assert archive_requests == [
-        "RonnyAL/ha-axiell-libraries/archive/refs/tags/v0.3.0.zip"
+        "RonnyAL/ha-axiell-libraries/archive/refs/tags/v0.4.0.zip"
     ]
     await repository.async_check_written_content()
 
@@ -124,7 +124,8 @@ async def test_marketplace_installs_loadable_self_contained_source(
             "-I",
             "-c",
             "import sys; sys.path.insert(0, sys.argv[1]); "
-            "from custom_components.axiell_libraries import config_flow, sensor, todo",
+            "from custom_components.axiell_libraries import "
+            "config_flow, sensor, services, todo",
             str(tmp_path),
         ],
         cwd=tmp_path,
@@ -134,7 +135,7 @@ async def test_marketplace_installs_loadable_self_contained_source(
     )
     assert imported.returncode == 0, imported.stderr
     installed = Path(repository.localpath)
-    assert json.loads((installed / "manifest.json").read_text())["version"] == "0.3.0"
+    assert json.loads((installed / "manifest.json").read_text())["version"] == "0.4.0"
     for locale in ("en", "nb"):
         assert json.loads((installed / "translations" / f"{locale}.json").read_text())
     assert not (tmp_path / "tests").exists()
@@ -164,9 +165,11 @@ def test_marketplace_minimum_blocks_older_core(core_version, can_install):
     ("installed_version", "installed_commit", "pending"),
     [
         ("v0.2.0", None, True),
-        ("0.3.0", None, False),
-        ("v0.3.0", None, False),
+        ("0.3.0", None, True),
+        ("v0.3.0", None, True),
+        ("0.4.0", None, False),
         ("v0.4.0", None, False),
+        ("v0.5.0", None, False),
         (None, "abcdef0", True),
     ],
 )
@@ -182,5 +185,5 @@ def test_marketplace_compares_published_release_to_installed_version(
     repository.data.releases = True
     repository.data.installed_version = installed_version
     repository.data.installed_commit = installed_commit
-    repository.data.last_version = "v0.3.0"
+    repository.data.last_version = "v0.4.0"
     assert repository.pending_update is pending

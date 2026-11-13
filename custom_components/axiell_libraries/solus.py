@@ -1,4 +1,4 @@
-"""Small, read-only Solus transport with explicit destination and session bounds.
+"""Small Solus transport with explicit destination and session bounds.
 
 The caller supplies and owns an isolated aiohttp session and persistent DeviceID.
 Tokens stay on this client; no session defaults or global authentication are used.
@@ -8,10 +8,13 @@ import base64
 import json
 import math
 import re
-from dataclasses import dataclass
+import unicodedata
+from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any
-from urllib.parse import quote, urlencode, urlsplit
+from html import escape, unescape
+from html.parser import HTMLParser
+from typing import Any, Literal
+from urllib.parse import quote, quote_plus, urlencode, urlsplit
 from uuid import uuid4
 
 import aiohttp
@@ -133,6 +136,125 @@ class Library:
     name: str
     app_id: str
     server_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class RenewalReply:
+    """A renewal result; provider text and internal consent codes stay out of repr."""
+
+    outcome: Literal["success", "error", "confirmation_required"]
+    message: str = field(repr=False)
+    acknowledgement_code: str | None = field(default=None, repr=False)
+
+
+def _valid_acknowledgement(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= 128
+        and value == value.strip()
+        and ";" not in value
+        and not any(unicodedata.category(char).startswith("C") for char in value)
+    )
+
+
+class _PlainText(HTMLParser):
+    """Discard markup and hidden script/style content from provider messages."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._hidden: list[str] = []
+
+    def handle_starttag(self, tag, attrs) -> None:
+        if tag in {"script", "style"}:
+            self._hidden.append(tag)
+        elif not self._hidden:
+            self.parts.append(" ")
+
+    def handle_endtag(self, tag) -> None:
+        if self._hidden:
+            if tag == self._hidden[-1]:
+                self._hidden.pop()
+        else:
+            self.parts.append(" ")
+
+    def handle_data(self, data) -> None:
+        if not self._hidden:
+            self.parts.append(data)
+
+
+def _redact_message(value: str, sensitive_values: tuple[str, ...]) -> str:
+    """Redact known secrets before HTML parsing/truncation can split them."""
+    variants: set[str] = set()
+    for secret in sensitive_values:
+        if not isinstance(secret, str) or not secret:
+            continue
+        variants.add(secret)
+        variants.add(escape(secret))
+        variants.add(escape(secret, quote=False))
+        variants.add(base64.b64encode(secret.encode()).decode())
+        variants.add(base64.urlsafe_b64encode(secret.encode()).decode())
+        variants.add(json.dumps(secret, ensure_ascii=True)[1:-1])
+        variants.add("".join(f"\\u{ord(char):04x}" for char in secret))
+        variants.add("".join(f"&#{ord(char)};" for char in secret))
+        variants.add("".join(f"&#x{ord(char):x};" for char in secret))
+        for encode in (quote, quote_plus):
+            for safe in ("", "/"):
+                encoded = encode(secret, safe=safe)
+                variants.add(encoded)
+                variants.add(encode(encoded, safe=safe))
+                # Percent-encoding hex digits are case insensitive.
+                variants.add(re.sub(r"%[0-9A-F]{2}", lambda m: m[0].lower(), encoded))
+    for secret in sorted(variants, key=len, reverse=True):
+        value = value.replace(secret, "[redacted]")
+    return value
+
+
+def _renewal_message(value: str, sensitive_values: tuple[str, ...]) -> str:
+    """Bounded plain text with known-secret redaction, never safe for logging."""
+    # Decode nested HTML entities before parsing, but redact at each stage so
+    # a secret containing HTML syntax never gets split into printable fragments.
+    for _ in range(5):
+        value = _redact_message(value, sensitive_values)
+        decoded = unescape(value)
+        if decoded == value:
+            break
+        value = decoded
+    value = _redact_message(value, sensitive_values)
+    parser = _PlainText()
+    parser.feed(value)
+    parser.close()
+    value = "".join(parser.parts)
+    value = "".join(
+        " " if char.isspace() else char
+        for char in value
+        if char.isspace() or not unicodedata.category(char).startswith("C")
+    )
+    value = _redact_message(value, sensitive_values)
+    return " ".join(value.split())[:512]
+
+
+def _renewal_reply(payload: Any, sensitive_values: tuple[str, ...]) -> RenewalReply:
+    """Only this decoder interprets non-success status strings as prompts."""
+    try:
+        payload = _decode(payload)
+        detail = _decode(payload.get("d")) if isinstance(payload, dict) else None
+    except SolusProtocolError:
+        raise SolusProtocolError("Malformed Solus renewal response") from None
+    if not isinstance(detail, dict):
+        raise SolusProtocolError("Malformed Solus renewal response") from None
+    status = detail.get("status")
+    if not _valid_acknowledgement(status):
+        raise SolusProtocolError("Malformed Solus renewal response") from None
+    message = detail.get("statusmessage", "")
+    if not isinstance(message, str):
+        raise SolusProtocolError("Malformed Solus renewal response") from None
+    if status.lower() in {"success", "error"}:
+        return RenewalReply(status.lower(), _renewal_message(message, sensitive_values))
+    message = _renewal_message(message, (*sensitive_values, status))
+    if not message or not message.replace("[redacted]", "").strip():
+        raise SolusProtocolError("Malformed Solus renewal response") from None
+    return RenewalReply("confirmation_required", message, status)
 
 
 def _origin(value: Any) -> str:
@@ -403,14 +525,15 @@ class SolusClient:
             "x-apppackage": PACKAGE_NAME,
         }
 
-    async def _call(
+    async def _catalogue_request(
         self,
         method: str,
         request: dict,
         *,
         authentication=False,
         user_id: str | None = None,
-    ) -> dict:
+    ) -> Any:
+        """Share envelopes and expiry handling, without choosing a decoder."""
         headers = self._catalogue_headers()
         if method == "LoginPreSession":
             envelope = {
@@ -438,16 +561,13 @@ class SolusClient:
                 "Request": request,
             }
         try:
-            return _section(
-                await _request(
-                    self._session,
-                    "POST",
-                    f"{self._server}/v4/Cat.asmx/{method}?rnd={uuid4().hex}",
-                    payload=envelope,
-                    headers=headers,
-                    auth_response=True,
-                ),
-                authentication=authentication,
+            return await _request(
+                self._session,
+                "POST",
+                f"{self._server}/v4/Cat.asmx/{method}?rnd={uuid4().hex}",
+                payload=envelope,
+                headers=headers,
+                auth_response=True,
             )
         except SolusAuthError:
             self._authenticated = False
@@ -456,6 +576,22 @@ class SolusClient:
             if not authentication:
                 raise SolusSessionExpired("Solus session expired") from None
             raise
+
+    async def _call(
+        self,
+        method: str,
+        request: dict,
+        *,
+        authentication=False,
+        user_id: str | None = None,
+    ) -> dict:
+        """Keep authentication and read calls strictly success-only."""
+        return _section(
+            await self._catalogue_request(
+                method, request, authentication=authentication, user_id=user_id
+            ),
+            authentication=authentication,
+        )
 
     async def async_login(self, card: str, pin: str) -> list[dict]:
         """Bootstrap cookies then establish an account session; never create IDs."""
@@ -565,6 +701,47 @@ class SolusClient:
             if self._session_expired:
                 raise SolusSessionExpired("Solus session expired") from None
             raise SolusAuthError("Solus authentication required") from None
+
+    def _renewal_secrets(self) -> tuple[str, ...]:
+        """Snapshot cookie values as well as client state before a write."""
+        return (
+            self._token,
+            self._session_id,
+            self._device_id,
+            self._user_id,
+            *(cookie.value for cookie in self._session.cookie_jar),
+        )
+
+    async def async_renew_loan(
+        self,
+        user_id: str,
+        loan_id: str,
+        source: str,
+        *,
+        acknowledged_codes: tuple[str, ...] = (),
+        sensitive_values: tuple[str, ...] = (),
+    ) -> RenewalReply:
+        """Attempt exactly one explicit write; caller owns consent and recovery."""
+        self._require_session()
+        if any(not _valid_acknowledgement(code) for code in acknowledged_codes):
+            raise SolusProtocolError("Invalid Solus renewal acknowledgement") from None
+        secrets = (
+            *sensitive_values,
+            *self._renewal_secrets(),
+            user_id,
+            *acknowledged_codes,
+        )
+        response = await self._catalogue_request(
+            "LoanRenew",
+            {
+                "LoanID": loan_id,
+                "UserID": user_id,
+                "Source": source,
+                "PromptAcknowledged": ";".join(acknowledged_codes),
+            },
+            user_id=user_id,
+        )
+        return _renewal_reply(response, (*secrets, *self._renewal_secrets()))
 
     async def async_get_loans(self, user_id: str) -> list[dict]:
         """Fetch loans; malformed responses never imply an empty account."""

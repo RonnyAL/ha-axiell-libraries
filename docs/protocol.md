@@ -248,10 +248,88 @@ Actual expiry codes inside JSON `d.status` are unverified: unknown unsuccessful
 statuses raise `SolusProtocolError` and never trigger speculative login loops.
 All public errors use static messages and suppress sensitive exception context.
 
+## Explicit individual renewal (APK-derived, not live-tested)
+
+The owner identified the following protocol in Axiell Libraries App `2026.42`.
+This establishes request/response shape separately from the owner-tested
+authentication above: **no live renewal or challenge acknowledgement has been
+performed**. No APK, extracted JavaScript or raw traffic is checked in.
+
+`POST <active Server>/v4/Cat.asmx/LoanRenew?rnd=<random>` uses the same standard
+catalogue envelope, isolated cookie session, persistent DeviceID, SessionID and
+authentication/version/package headers as `LoansGet`. Both the outer `UserID`
+and inner `UserID` select the same account as `LoansGet`. Its exact inner request
+is:
+
+```json
+{
+  "LoanID": "<loanID, not recordID>",
+  "UserID": "<current account user ID>",
+  "Source": "<actual loan Source>",
+  "PromptAcknowledged": ""
+}
+```
+
+`PromptAcknowledged` begins empty. After explicit informed consent, the caller
+can supply exact accumulated server status codes joined with `;`. The transport
+preserves their spelling and case; empty codes, surrounding whitespace,
+semicolons, Unicode control/format characters and codes longer than 128
+characters are rejected before dispatch. The higher-level consent workflow
+owns replay/expiry/chain limits and must not accept codes directly from users.
+
+Renewal alone has a dedicated decoder: case-insensitive `success` and `error`
+produce terminal replies. Another safe, nonempty status plus a usable
+`statusmessage` is a confirmation challenge; its exact status is kept internally
+as the next acknowledgement code. JSON-string `d` envelopes are defensively
+supported, consistently with other endpoints. Missing/malformed status or
+envelope is a protocol failure, never implicit success or consent. Challenges
+require a usable message; terminal success/error replies may omit the message
+and use a static fallback. A supplied malformed terminal message is rejected.
+Other catalogue and authentication methods retain their success-only decoder.
+Case variants, serialized envelopes and negative/challenge examples are tested
+synthetically; provider challenge semantics remain unverified against a server.
+
+`SolusClient.async_renew_loan(user_id, loan_id, source, *, acknowledged_codes=(),
+sensitive_values=())` requires an existing authenticated session. It attempts
+one HTTP request, never creates a DeviceID, retries a write or initiates login.
+The immutable `RenewalReply` contains `outcome`, sanitized `message` and internal
+`acknowledgement_code`; message/code are excluded from its representation.
+HTTP 401/403 clears authentication and raises `SolusSessionExpired`. Transport,
+HTTP and malformed-response errors retain static exception text without raw
+bodies or codes. The caller must reconcile uncertain writes through reads,
+never by automatically repeating renewal.
+
+Provider messages are plain text, remove HTML/script/style and control content,
+collapse whitespace and cap output at 512 characters after redaction. Known
+client account, requested UserID, authentication token, session ID, DeviceID,
+explicitly supplied card/PIN, acknowledgement codes and cookie values from
+before and after the response are redacted. Tested encoded forms include HTML
+entities, JSON Unicode escapes, URL/query escaping (also double URL escaping)
+and Base64. Cookies are snapshotted before dispatch because a response can
+replace them. Callers must supply stored card/PIN via `sensitive_values` and
+never log provider messages. Known-secret redaction cannot universally detect
+arbitrary personal provider text or every possible encoding; sanitized messages
+are intended only for the explicit action response, not logs or diagnostics.
+
 The offline tests mock the HTTP request boundary and verify bootstrap ordering,
 payloads, safe routing, and separate client tokens. They do not verify live
 Solus behavior or actual server cookie issuance; a local owner-run probe with
 credentials outside Git remains necessary.
+
+The current catalogue wrapper uses the library AppID as TemplateID, matching
+the verified authentication implementation. Entries do not store a separate
+TemplateID. Renewal supports those existing authenticated accounts; libraries
+requiring a distinct template remain an unverified limitation, not a silently
+expanded configuration contract. The action supplies the selected entry's card
+as UserID, matching existing LoansGet.
+
+The per-entry coordinator owns fresh loan lookup, consent and all I/O. Its
+operation lock serializes polling and renewal; writes are never retried
+automatically. The HA admin action is a thin adapter with optional response
+data. See the [action and confirmation guide](home-assistant-ui.md#renew-one-loan)
+for ten-minute memory-only tokens, partial success and unknown-outcome handling.
+Known-secret redaction cannot remove arbitrary personal provider prose. No live
+LoanRenew or provider confirmation chain has been tested.
 
 ## Configuration identity and validation
 

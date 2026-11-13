@@ -1,0 +1,7 @@
+{
+  "services": {
+    "renew_loan": {
+      "service": "mdi:book-refresh-outline"
+    }
+  }
+}

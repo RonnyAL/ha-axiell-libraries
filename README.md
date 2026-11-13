@@ -1,13 +1,13 @@
 # Axiell Libraries for Home Assistant
 
-A native, read-only custom integration for loans at Solus-powered libraries,
+A native custom integration for loans at Solus-powered libraries,
 including libraries using the Axiell Libraries App. Each library/card pair has
 its own Home Assistant config entry, persistent DeviceID, session and entities.
 
-This uses an **unofficial, reverse-engineered API**. The complete offline suite
-passes on Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
-Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.3.0** is
-prepared but unpublished.
+This uses an **unofficial, reverse-engineered API**. Runtime targets are
+Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
+Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.4.0** is
+prepared but unpublished; the owner has installed the published **0.3.0** release.
 The owner confirms live Home Assistant authentication, all three aggregate
 sensors, and Marketplace installation/update. New structured loan attributes
 and dashboard templates have offline coverage; browser rendering and covers
@@ -17,8 +17,8 @@ still need an owner-run check. See [validation evidence](docs/validation.md).
 
 The owner has exercised Marketplace installation/update and account setup.
 Check the new loan details after installing this change and restarting HA.
-The first planned published release is `v0.3.0` (numeric manifest `0.3.0`).
-Until it is published and installed, Marketplace may retain a commit label.
+Version `v0.3.0` is published and installed by the owner. The renewal action
+described below belongs to the unreleased `0.4.0` update.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
    **Settings → Marketplace → Add from link** and enter
@@ -93,9 +93,12 @@ update makes entities unavailable while retaining the previous snapshot
 internally; a successful empty response displays zero loans. Partial catalogue
 failure keeps loans visible with available metadata.
 
-The list cannot complete, edit, create or delete loans. Renewals, returns,
-reservations and account changes must be made through the library. Calendar
-entities and write actions are outside v1.
+The to-do list cannot complete, edit, create or delete loans. Administrators
+can explicitly renew one loan with `axiell_libraries.renew_loan`; every known
+fee or provider prompt requires manual consent. See the
+[renewal action guide](docs/home-assistant-ui.md#renew-one-loan). Returns,
+reservations and account changes remain library operations. There are no
+automatic or bulk renewals. Live renewal remains unverified.
 
 ## PIN changes and privacy
 
@@ -172,7 +175,7 @@ python3.14 -m venv /tmp/axiell-dev-2026110
 
 docker run --rm -v "$PWD:/github/workspace:ro" ghcr.io/home-assistant/hassfest:latest
 actionlint
-/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.3.0
+/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.4.0
 git diff --check
 ```
 
@@ -191,28 +194,20 @@ for local and hosted evidence and the remaining owner-run checks.
 
 ## Maintainer releases
 
-The original commit-hash label came from having no **published GitHub Release**,
-despite a numeric manifest. A tag alone does not change Marketplace's release
-source. Prepare manifest `0.3.0`, Git tag `v0.3.0` and release title `0.3.0`;
-installed Marketplace code normalizes the prefix for version comparison while
-using the actual `v0.3.0` tag for its source archive. The old label can remain
-until publication and installation. Direct-link update checks require a GitHub
-connection and can take up to the documented 48-hour interval.
+Version 0.3.0 is published and installed by the owner. This branch prepares
+manifest `0.4.0`, Git tag `v0.4.0`, release title `0.4.0` and reviewed notes;
+it creates no tag or release and changes no repository visibility.
 
-After feature review, the remaining owner-run browser checks, publication
-approval and merge to `main`, a maintainer may dispatch **Actions → Release**
-with numeric input `0.3.0`. The workflow runs full reusable validation, checks
-tag/manifest agreement and nonempty reviewed notes, atomically creates an
-immutable tag at the validated dispatch SHA, then publishes those notes. Only
-`main` can publish; existing tags are refused. No attached ZIP is required.
-
-The owner's publication hold remains active. This change publishes no release,
-creates no tag and changes no repository visibility. See
-[release preparation and failure recovery](docs/releases.md) and the
-[0.3.0 notes](docs/releases/0.3.0.md). If publishing fails after tag creation,
+After review, publication approval and merge to `main`, a maintainer may dispatch
+**Actions → Release** with numeric input `0.4.0`. Full reusable validation,
+tag/manifest agreement and reviewed notes gate atomic tag creation at the
+validated dispatch SHA. Existing tags are refused. No attached ZIP is required.
+See [release preparation and failure recovery](docs/releases.md) and the
+[0.4.0 notes](docs/releases/0.4.0.md). If publishing fails after tag creation,
 inspect the validated SHA and repository state before authorized recovery;
-never blindly rerun or move/delete the tag. This prepares direct installation,
-not official Marketplace catalog inclusion.
+never blindly rerun or move/delete the tag. Direct-link update checks require
+a GitHub connection and can take up to the documented 48-hour interval. This
+does not establish official Marketplace catalog inclusion.
 
 - [Sanitized protocol and unresolved assumptions](docs/protocol.md)
 - [Synthetic fixtures](tests/fixtures/)

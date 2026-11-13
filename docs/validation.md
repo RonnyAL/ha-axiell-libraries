@@ -3,11 +3,97 @@
 This records automated implementation evidence and separately attributed
 owner-run live checks. Automated tests never use a real library account.
 The approved design was reused: native HA integration, one entry per
-library/card, persistent DeviceID, read-only Solus access, nearby discovery and
+library/card, persistent DeviceID, initially read-only Solus access, nearby discovery and
 manual LocationID. No redesign approval was needed. The original six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: individual loan details and semantic releases
+## Current: explicit individual loan renewal (prepared 0.4.0)
+
+The owner explicitly authorized an individual renewal action extending read-only
+v1. Existing aggregate sensors, structured loan attributes and the to-do entity
+remain read-only. The owner has installed published **0.3.0**; this work prepares
+**0.4.0** without publishing a tag/release or invoking a live renewal.
+
+Implemented the [renewal plan](superpowers/plans/2026-11-13-loan-renewal.md)
+with Superpowers TDD and separate task reviews:
+
+| Task / commit | Files and behavior | Observed RED → GREEN |
+| --- | --- | --- |
+| Transport / `bc71012` | `solus.py`, protocol tests/docs: exact active-server LoanRenew envelope, dedicated reply decoder, bounded message redaction | 60 failed/4 passed → 64 focused passed; 503 full passed |
+| Coordinator / `53cef8a` | `renewal.py`, coordinator/lifecycle, renewal/entity tests: account isolation, consent, read reconciliation, cancellation and unload drain | Initial missing method 1 failed → 1 passed; consent 39 failed/1 passed → 40 passed; lifecycle 4 failed/3 passed → 109 focused passed; 562 full passed |
+| HA action / `3b4ef31` | `services.py`, metadata/translations, services/Marketplace tests, manifest/release docs: explicit admin account action and optional response | 17 failed/7 passed initially; schema assertions strengthened to exclude missing-service false positives → 35 service tests passed; 92 action/Marketplace/release tests passed; 599 full passed |
+
+Each final run has the same five known upstream warnings. Renewal tests are
+entirely synthetic/offline. Lifecycle tests use events to reproduce cancellation
+and session detach during a write; no timing sleeps or real account writes.
+The confirmation fingerprint includes exact original circulation values, including
+same-day timestamp differences and malformed nested values, while excluding
+catalogue metadata. Each write attempt is outside the read/login recovery loop.
+
+Controller verification at `3b4ef31`:
+
+```text
+$ /tmp/axiell-ha202611-venv/bin/pytest -q
+599 passed, 5 warnings in 6.46s
+$ /tmp/axiell-ha2026110-venv/bin/pytest -q
+599 passed, 5 warnings in 6.73s
+$ /tmp/axiell-ha202611-venv/bin/ruff check .
+All checks passed!
+$ /tmp/axiell-ha202611-venv/bin/ruff format --check .
+47 files already formatted
+$ /tmp/axiell-actionlint/actionlint
+(no output, exit 0)
+$ docker run --rm -v /home/ronny/axiell/ha-axiell-libraries:/github/workspace:ro ghcr.io/home-assistant/hassfest:latest
+Integrations: 1
+Invalid integrations: 0
+$ /tmp/axiell-ha202611-venv/bin/python scripts/check_release.py v0.4.0
+Release tag and manifest agree: 0.4.0
+```
+
+Actual local Python is **3.14.7**, with Core and official `pytest-homeassistant`
+**2026.11.1** in the target environment and **2026.11.0** in the minimum
+environment. Ruff is **0.17.5**. The minimum remains the lowest tested version.
+Warnings are the existing Core `web.Application` inheritance warning and four
+backoff `asyncio.iscoroutinefunction` deprecations; no suppression was added.
+Hassfest validated the new action schema, translations and icon as well as the
+existing integration metadata/config flow. Actionlint and diff whitespace checks
+passed. A bounded tracked-file audit found text files only, with no APK/XAPK,
+network captures or private-research paths.
+
+Installed Marketplace code tests load the prepared archive/manifest and compare
+0.3.0 with 0.4.0. Release tests retain the manual/main-only CI gate, canonical
+manifest/tag equality, immutable validated-SHA tag and reviewed release notes.
+This proves offline packaging/update behavior, not a live 0.4.0 installation.
+
+`axiell_libraries.renew_loan` requires explicit account and loan IDs. Positive
+known fees and each server challenge need a separate one-use confirmation;
+confirmation expires after ten minutes or unload/reload. A lost response causes
+read reconciliation and an uncertain-outcome error, never a write replay. A
+successful renewal with failed refresh remains explicitly successful. Admins
+and trusted HA system contexts can call the action; no automatic renewal is
+installed. See the [action guide](home-assistant-ui.md#renew-one-loan).
+
+All three task reviews and the final whole-branch review approved the change
+without blocking findings. [PR #5](https://github.com/RonnyAL/ha-axiell-libraries/pull/5)
+contains the delivery report and current merge/check status. Hosted validation
+at reviewed commit `509da8d` also passed:
+
+- [Push CI](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43481884142):
+  Python 3.14.10; actual Core/harness 2026.11.0, 599 passed/5 warnings in 13.70s;
+  actual Core/harness 2026.11.1, 599 passed/5 warnings in 14.81s.
+- Ruff: all checks passed, 47 files already formatted. Official hassfest:
+  invalid integrations 0. All four hosted jobs succeeded.
+
+No live renewal, fee acknowledgement or provider challenge sequence was tested.
+APK evidence establishes request shape and client behavior only. Browser action
+rendering, real provider policy and a live Marketplace 0.4.0 update remain
+owner-run checks. The existing wrapper uses AppID for TemplateID and the entry
+card as the selected account UserID; different provider identity schemes need
+separate evidence. Known-secret redaction cannot remove every possible personal
+phrase in provider messages. Credentials, sessions and DeviceIDs remain isolated
+and persistent as before.
+
+## Previous: individual loan details and semantic releases
 
 The owner now confirms live HA authentication, active-loan count, next due date
 and overdue count, as well as Marketplace installation/update. This supersedes
