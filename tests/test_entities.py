@@ -565,3 +565,64 @@ async def test_cover_failure_needs_no_http_image_route_to_setup_or_refresh(hass,
     details = hass.states.get(ids["active_loans"]).attributes["loans"]
     assert details[0]["image_url"] == "https://images.example.org/cover.jpg"
     assert details[0]["title"] == "Same title"
+
+
+async def test_unload_drains_active_renewal_before_detaching_session(hass, api):
+    """Catch LIFO unload callback detach racing a dispatched write."""
+    import asyncio
+
+    from custom_components.axiell_libraries.solus import RenewalReply
+    from tests.test_renewal import checkpoint
+
+    api.rows[0]["canRenew"] = True
+    config = entry(hass)
+    await setup(hass, config)
+    coordinator = config.runtime_data
+    session = api.clients[0]._session
+    dispatched, release = asyncio.Event(), asyncio.Event()
+
+    async def write(*args, **kwargs):
+        dispatched.set()
+        await release.wait()
+        assert not session.closed
+        return RenewalReply("success", "Renewed")
+
+    with patch.object(api.clients[0], "async_renew_loan", side_effect=write):
+        renewal = asyncio.create_task(coordinator.async_renew_loan("loan-a"))
+        await dispatched.wait()
+        unloading = asyncio.create_task(
+            hass.config_entries.async_unload(config.entry_id)
+        )
+        await checkpoint()
+        try:
+            assert not session.closed
+            assert not unloading.done()
+        finally:
+            release.set()
+            results = await asyncio.gather(renewal, unloading, return_exceptions=True)
+    assert results[0].status == "renewed"
+    assert results[1] is True
+    assert session.closed
+    assert not async_get_clientsession(hass).connector.closed
+
+
+async def test_failed_platform_unload_keeps_account_operational(hass, api):
+    from custom_components.axiell_libraries import async_unload_entry
+    from custom_components.axiell_libraries.solus import RenewalReply
+
+    api.rows[0]["canRenew"] = True
+    config = entry(hass)
+    await setup(hass, config)
+    with patch.object(
+        hass.config_entries, "async_unload_platforms", return_value=False
+    ):
+        assert await async_unload_entry(hass, config) is False
+    assert not api.clients[0]._session.closed
+    with patch.object(
+        api.clients[0],
+        "async_renew_loan",
+        return_value=RenewalReply("success", "Renewed"),
+    ):
+        assert (
+            await config.runtime_data.async_renew_loan("loan-a")
+        ).status == "renewed"
