@@ -256,6 +256,7 @@ class SolusClient:
         self._session_id = ""
         self._user_id = ""
         self._authenticated = False
+        self._session_expired = False
 
     def _metadata(self) -> dict:
         return {
@@ -322,6 +323,7 @@ class SolusClient:
         except SolusAuthError:
             self._authenticated = False
             self._token = ""
+            self._session_expired = not authentication
             if not authentication:
                 raise SolusSessionExpired("Solus session expired") from None
             raise
@@ -378,13 +380,18 @@ class SolusClient:
             if users[0].get("AuthToken"):
                 self._token = _text(users[0]["AuthToken"])
             self._authenticated = True
+            self._session_expired = False
             return users
-        except SolusError:
+        except SolusError as error:
             self._token = self._session_id = ""
+            if isinstance(error, SolusAuthError):
+                self._session_expired = False
             raise
 
     def _require_session(self) -> None:
         if not self._authenticated:
+            if self._session_expired:
+                raise SolusSessionExpired("Solus session expired") from None
             raise SolusAuthError("Solus authentication required") from None
 
     async def async_get_loans(self, user_id: str) -> list[dict]:

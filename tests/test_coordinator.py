@@ -1,13 +1,17 @@
 """Offline coordinator behavior using real Home Assistant refresh methods."""
 
 import asyncio
+import re
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
+import aiohttp
 import pytest
+from aioresponses import CallbackResult, aioresponses
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -15,6 +19,7 @@ from custom_components.axiell_libraries.const import DOMAIN
 from custom_components.axiell_libraries.coordinator import AxiellCoordinator
 from custom_components.axiell_libraries.solus import (
     SolusAuthError,
+    SolusClient,
     SolusConnectionError,
     SolusProtocolError,
     SolusSecurityError,
@@ -349,3 +354,123 @@ async def test_enrichment_is_bounded_and_settled_before_session_recovery(
     assert active == 0
     assert recovery_seen
     assert len(coordinator.data.loans) == 12
+
+
+@pytest.mark.parametrize("recovery_outage", [False, True])
+async def test_real_client_recovers_expiry_with_queued_catalogue_requests(
+    setup_coordinator, hass, recovery_outage
+):
+    """An expired session must not turn queued requests into credential rejection."""
+    _, entry, _ = setup_coordinator
+    server = "https://process-test.sol.us"
+    login_count = 0
+    active = 0
+    initial_requests = 0
+    repo_requests = 0
+    loan_requests = 0
+    initial_batch_ready = asyncio.Event()
+    devices = []
+
+    def endpoint(method):
+        return re.compile(rf"{server}/v4/Cat.asmx/{method}\?rnd=.+")
+
+    def pre_session(url, **kwargs):
+        nonlocal login_count
+        assert active == 0
+        login_count += 1
+        devices.append(kwargs["json"]["DeviceID"])
+        return CallbackResult(
+            payload={
+                "d": {"status": "success", "Detail": [{"AuthToken": "TEST_TOKEN"}]}
+            }
+        )
+
+    def routing(url, **kwargs):
+        nonlocal repo_requests
+        repo_requests += 1
+        if recovery_outage and repo_requests == 2:
+            return CallbackResult(status=503)
+        return CallbackResult(payload={"Server": server})
+
+    def loans(url, **kwargs):
+        nonlocal loan_requests
+        loan_requests += 1
+        rows = (
+            []
+            if recovery_outage and loan_requests == 1
+            else [loan(f"record-{index}", f"loan-{index}") for index in range(8)]
+        )
+        return CallbackResult(payload={"d": {"status": "success", "Detail": rows}})
+
+    async def catalogue(url, **kwargs):
+        nonlocal active, initial_requests
+        active += 1
+        devices.append(kwargs["json"]["DeviceID"])
+        record_id = kwargs["json"]["Request"]["RecordID"]
+        try:
+            if login_count == 1:
+                initial_requests += 1
+                if initial_requests == 4:
+                    initial_batch_ready.set()
+                await initial_batch_ready.wait()
+                if record_id == "record-0":
+                    return CallbackResult(status=401)
+                # Hold the other real HTTP responses until the client's 401
+                # handler invalidates the session; queued calls then see expiry.
+                while client._authenticated:
+                    await asyncio.sleep(0)
+            return CallbackResult(
+                payload={"d": {"status": "success", "Detail": record(record_id)}}
+            )
+        finally:
+            active -= 1
+
+    with aioresponses() as http:
+        http.get(
+            "https://repo.sol.us/id/TEST-APP/2026.42",
+            callback=routing,
+            repeat=True,
+        )
+        http.get(re.compile(rf"{server}/v4/Auth.aspx\?s=.+"), body="", repeat=True)
+        http.post(endpoint("LoginPreSession"), callback=pre_session, repeat=True)
+        http.post(
+            endpoint("LoginCheckSession"),
+            payload={
+                "d": {
+                    "status": "success",
+                    "Detail": [{"AuthToken": "TEST_TOKEN"}],
+                    "Detail2": {"SessionID": "TEST_SESSION", "ServerToUse": server},
+                }
+            },
+            repeat=True,
+        )
+        http.post(
+            endpoint("LoansGet"),
+            callback=loans,
+            repeat=True,
+        )
+        http.post(endpoint("RecordGet"), callback=catalogue, repeat=True)
+        session = async_create_clientsession(
+            hass, cookie_jar=aiohttp.CookieJar(), auto_cleanup=False
+        )
+        try:
+            client = SolusClient(session, "TEST-APP", server, DEVICE)
+            coordinator = AxiellCoordinator(hass, entry, client)
+            await coordinator.async_config_entry_first_refresh()
+            if recovery_outage:
+                previous = coordinator.data
+                await coordinator.async_refresh()
+                assert isinstance(coordinator.last_exception, UpdateFailed)
+                assert coordinator.data is previous
+                assert login_count == 1
+                await coordinator.async_refresh()
+        finally:
+            session.detach()
+    assert coordinator.last_update_success
+    assert len(coordinator.data.loans) == 8
+    assert all(item.author == "Catalogue author" for item in coordinator.data.loans)
+    assert login_count == 2
+    assert initial_requests == 4
+    assert active == 0
+    assert devices and set(devices) == {DEVICE}
+    assert entry.data["device_id"] == DEVICE

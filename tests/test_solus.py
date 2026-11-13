@@ -516,3 +516,70 @@ async def test_malformed_auth_status_is_protocol_failure(status):
         async with aiohttp.ClientSession() as session:
             with pytest.raises(SolusProtocolError):
                 await client(session).async_login(CARD, PIN)
+
+
+@pytest.mark.asyncio
+async def test_expiry_state_survives_queued_requests_until_successful_login():
+    """Queued calls after HTTP expiry retain the recoverable classification."""
+    from custom_components.axiell_libraries.solus import SolusSessionExpired
+
+    with aioresponses() as mock:
+        login(mock)
+        mock.post(endpoint("RecordGet"), status=401)
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            await api.async_login(CARD, PIN)
+            with pytest.raises(SolusSessionExpired):
+                await api.async_get_record("TEST_RECORD", "ILS")
+            with pytest.raises(SolusSessionExpired):
+                await api.async_get_record("QUEUED_RECORD", "ILS")
+            with pytest.raises(SolusSessionExpired):
+                await api.async_get_loans(CARD)
+            login(mock)
+            await api.async_login(CARD, PIN)
+            mock.post(
+                endpoint("LoansGet"), payload={"d": {"status": "success", "Detail": []}}
+            )
+            assert await api.async_get_loans(CARD) == []
+
+
+@pytest.mark.asyncio
+async def test_failed_login_clears_expiry_state_and_remains_credential_rejection():
+    """Expired state cannot cause invalid credentials to enter recovery loops."""
+    from custom_components.axiell_libraries.solus import SolusSessionExpired
+
+    with aioresponses() as mock:
+        login(mock)
+        mock.post(endpoint("LoansGet"), status=401)
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            await api.async_login(CARD, PIN)
+            with pytest.raises(SolusSessionExpired):
+                await api.async_get_loans(CARD)
+            bootstrap(mock)
+            mock.post(endpoint("LoginPreSession"), status=403)
+            with pytest.raises(SolusAuthError) as rejected:
+                await api.async_login(CARD, PIN)
+            assert not isinstance(rejected.value, SolusSessionExpired)
+            with pytest.raises(SolusAuthError) as unauthenticated:
+                await api.async_get_loans(CARD)
+            assert not isinstance(unauthenticated.value, SolusSessionExpired)
+
+
+@pytest.mark.asyncio
+async def test_transient_recovery_failure_preserves_expiry_for_next_poll():
+    from custom_components.axiell_libraries.solus import SolusSessionExpired
+
+    with aioresponses() as mock:
+        login(mock)
+        mock.post(endpoint("LoansGet"), status=401)
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            await api.async_login(CARD, PIN)
+            with pytest.raises(SolusSessionExpired):
+                await api.async_get_loans(CARD)
+            mock.get("https://repo.sol.us/id/TEST-APP/2026.42", status=503)
+            with pytest.raises(SolusConnectionError):
+                await api.async_login(CARD, PIN)
+            with pytest.raises(SolusSessionExpired):
+                await api.async_get_loans(CARD)

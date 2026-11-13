@@ -212,3 +212,12 @@ Publisher/year values remain in an immutable mapping under the provider's keys
 publisher/year key scheme is assumed. These cache, concurrency, retry, and
 optional source-validation policies are implementation choices verified offline,
 not new claims about upstream API behavior. No live account test was performed.
+
+When an authenticated HTTP 401/403 invalidates the client session, later queued
+data requests retain `SolusSessionExpired` without sending another HTTP request.
+That recoverable state survives a transport/protocol failure during recovery
+login, allowing a later poll to try its single recovery attempt. Successful
+login clears expiry; explicit credential rejection clears it to ordinary
+unauthenticated state and requests reauthentication. These distinctions prevent
+queued catalogue requests or temporary recovery outages from masquerading as
+invalid credentials.
