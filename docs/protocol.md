@@ -4,7 +4,8 @@ This is a **reverse-engineered observation**, not official documentation. It was
 
 ## Discovery
 
-**Nearby libraries** (observed in APK; not yet live-validated for all locations):
+**Nearby libraries** (anonymous public request verified 2026-11-13 for the
+sample coordinates below; not verified for all locations):
 
 `POST https://locator.sol.us/v4/Locator.asmx/FindWithLocation?rnd=<random>`
 
@@ -20,7 +21,27 @@ This is a **reverse-engineered observation**, not official documentation. It was
 {"LocationID": "Malselv", "GlobalAppID": "5C72D777-E044-4B76-97A8-F240FA42E9BD"}
 ```
 
-Result contains `Status: OK`, `AppID`, `ServerUrl`, and `APIUrl` for the selected library. Do not assume `APIUrl` is the host to use for the subsequent login. In the tested version, the app resolves routing with `GET https://repo.sol.us/id/<AppID>/2026.42` and uses the returned `Server` (for the observed instance: `https://process-m-eu1.sol.us/`). Validate network destinations before sending credentials.
+Anonymous public probes on 2026-11-13 returned a `d` object for `QueryWithID`
+with `Status: "ok"`, `LocationID`, `AppID`, `ServerUrl`, and `APIUrl`, without
+`Name`. `FindWithLocation` returned a `d` list whose rows each had `Status: "ok"`
+and the same identity/routing fields, also without `Name`. These structural
+observations explain why requiring uppercase `OK`, a display name, and a nearby
+`Detail` wrapper blocked setup before credential entry. No credentials,
+DeviceID, login, or account request was used; no raw response was saved.
+
+Do not assume `APIUrl` is the host to use for subsequent login. The app resolves
+routing with `GET https://repo.sol.us/id/<AppID>/2026.42` and uses the returned
+`Server` (for the observed instance: `https://process-m-eu1.sol.us/`). The anonymous
+probe also confirmed a valid HTTPS Solus `Server` from that repo route. Validate
+network destinations before sending credentials; this public check does not
+verify the integration's live login or account behavior.
+
+After the parser correction, a separate anonymous check using the actual client
+resolved `Malselv`: LocationID and fallback name were both `Malselv`, with
+processing origin `https://process-m-eu1.sol.us`. The actual nearby client also
+parsed/resolved one candidate for `(69.0, 19.0)`; that sample candidate was not
+Malselv. This checks discovery only, not nearby results for the owner's HA
+coordinates. No credentials, DeviceID, login or account requests were used.
 
 ## Working authentication path
 
@@ -107,11 +128,17 @@ API requests, does not modify its default headers, and does not close it.
 creates a DeviceID. Authentication state remains on the client in memory.
 
 The lookup implementation accepts a locator object, optionally wrapped in `d`
-(or JSON serialized), with `Status: OK`, `LocationID`, `Name`, `AppID`, and
-`ServerUrl`. Nearby uses the same fields in a `Detail` list. These precise
-locator field shapes and nearby behavior need local live validation: the
-checked-in observations do not include a complete locator response fixture.
-Malformed responses fail explicitly. `APIUrl` is never used for credentials.
+(or JSON serialized), with string `Status` equal to `ok` case-insensitively,
+nonempty string `LocationID` and `AppID`, and a validated `ServerUrl`. An absent
+or whitespace-only string `Name` falls back to `LocationID`; other Name types
+are malformed. Nearby accepts the observed direct list, validating every row's
+success status before resolving any repo route. The previously tested
+`Status`/`Detail` wrapper remains supported; its rows need no separate status.
+Empty direct lists yield no candidates, keeping manual entry available.
+Serialized envelopes remain a defensive allowance; the legacy wrapper is
+covered offline. Neither is a new live observation. Malformed responses fail explicitly.
+This status handling applies only to discovery; authenticated `d.status`
+validation is unchanged. `APIUrl` is never used for credentials.
 Both discovery and each login resolve `GET https://repo.sol.us/id/<AppID>/2026.42`
 and use its `Server`. An optional repo `AuthServer` can specify the bootstrap
 origin; otherwise `Server` is used. That optional field is a defensive assumption,
@@ -241,11 +268,11 @@ those versions, live Marketplace installation, browser rendering, a separate HA
 process restart, actual cookie issuance, or a successful live integration login. Earlier
 owner-verified endpoint observations must not be conflated with those checks.
 
-Before relying on live operation, the owner must check the exact locator
-`Status/LocationID/Name/AppID/ServerUrl` shape and nearby `Detail` list, bootstrap
-device descriptors and `LoginCheckSession.Request`, optional repo `AuthServer`,
+Anonymous public discovery and repo routing were checked on 2026-11-13 as
+described above. Before relying on live account operation, the owner must check
+bootstrap device descriptors and `LoginCheckSession.Request`, optional repo `AuthServer`,
 JSON auth rejection/expiry codes, and the strict single-label `*.sol.us`
-same-processing-origin routing policy. No live requests were made during
-implementation. Use the [README's HA UI smoke test](../README.md#optional-owner-run-live-smoke-test)
+same-processing-origin routing policy. No credentialed integration requests
+were made during implementation. Use the [README's HA UI smoke test](../README.md#optional-owner-run-live-smoke-test)
 without exposing credentials or recording HTTP bodies. The
 [validation ledger](validation.md) records task evidence and remaining review.

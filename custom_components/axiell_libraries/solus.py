@@ -174,9 +174,19 @@ async def _library(session: aiohttp.ClientSession, item: Any) -> Library:
     if not isinstance(item, dict):
         raise SolusProtocolError("Malformed Solus library") from None
     location_id, app_id = _text(item.get("LocationID")), _text(item.get("AppID"))
+    name = item.get("Name", "")
+    if not isinstance(name, str):
+        raise SolusProtocolError("Malformed Solus library") from None
     _origin(item.get("ServerUrl"))
     server, _ = await _routing(session, app_id)
-    return Library(location_id, _text(item.get("Name")), app_id, server)
+    return Library(location_id, name.strip() or location_id, app_id, server)
+
+
+def _locator_success(response: Any) -> None:
+    """Locator status is separate from the authenticated catalogue protocol."""
+    status = response.get("Status") if isinstance(response, dict) else None
+    if not isinstance(status, str) or status.lower() != "ok":
+        raise SolusProtocolError("Unable to discover Solus libraries") from None
 
 
 async def _locator(session: aiohttp.ClientSession, method: str, payload: dict) -> Any:
@@ -188,12 +198,9 @@ async def _locator(session: aiohttp.ClientSession, method: str, payload: dict) -
             payload={**payload, "GlobalAppID": GLOBAL_APP_ID},
         )
     )
-    response = (
-        _decode(response.get("d", response)) if isinstance(response, dict) else None
+    return (
+        _decode(response.get("d", response)) if isinstance(response, dict) else response
     )
-    if not isinstance(response, dict) or response.get("Status") != "OK":
-        raise SolusProtocolError("Unable to discover Solus libraries") from None
-    return response
 
 
 async def async_lookup_location(
@@ -201,6 +208,7 @@ async def async_lookup_location(
 ) -> Library:
     """Resolve a manual LocationID through the locator and HTTPS routing repo."""
     response = await _locator(session, "QueryWithID", {"LocationID": location_id})
+    _locator_success(response)
     return await _library(session, response)
 
 
@@ -225,7 +233,16 @@ async def async_find_nearby(
             "LocationLng": longitude,
         },
     )
-    items = _decode(response.get("Detail"))
+    if isinstance(response, dict):
+        _locator_success(response)
+        items = _decode(response.get("Detail"))
+    else:
+        items = response
+        if isinstance(items, list):
+            # Direct rows carry their own statuses. Validate every row before
+            # any repo routing; legacy Status/Detail rows need no row status.
+            for item in items:
+                _locator_success(item)
     if not isinstance(items, list):
         raise SolusProtocolError("Malformed Solus library results") from None
     return [await _library(session, item) for item in items]
