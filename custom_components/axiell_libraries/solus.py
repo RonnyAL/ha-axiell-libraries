@@ -20,6 +20,14 @@ APP_BUILD = "2026420500"
 PACKAGE_NAME = "solus.AllAxiell"
 GLOBAL_APP_ID = "5C72D777-E044-4B76-97A8-F240FA42E9BD"
 _TIMEOUT = aiohttp.ClientTimeout(total=20)
+_ZERO_SESSION_ID = "00000000-0000-0000-0000-000000000000"
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+    ),
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+}
 _SOLUS_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.sol\.us")
 
 
@@ -110,10 +118,11 @@ async def _request(
 ) -> Any:
     """No automatic redirects, retries, raw exception messages or HTTP logging."""
     kwargs = {"allow_redirects": False, "timeout": _TIMEOUT}
+    request_headers = {**_BROWSER_HEADERS, **(headers or {})}
     if payload is not None:
         kwargs["json"] = payload
-    if headers is not None:
-        kwargs["headers"] = headers
+        request_headers["Content-Type"] = "application/json; charset=utf-8"
+    kwargs["headers"] = request_headers
     try:
         async with session.request(method, url, **kwargs) as response:
             if 300 <= response.status < 400:
@@ -125,7 +134,7 @@ async def _request(
             if bootstrap:
                 await response.read()
                 return None
-            return await response.json(content_type=None)
+            return await response.json(content_type=None, encoding="utf-8-sig")
     except TimeoutError, aiohttp.ClientError:
         raise SolusConnectionError("Unable to contact Solus") from None
     except ValueError, TypeError, UnicodeError:
@@ -137,7 +146,8 @@ def _section(payload: Any, *, authentication: bool = False) -> dict:
     detail = _decode(payload.get("d")) if isinstance(payload, dict) else None
     if not isinstance(detail, dict):
         raise SolusProtocolError("Malformed Solus response") from None
-    if detail.get("status") != "success":
+    status = detail.get("status")
+    if not isinstance(status, str) or status.lower() != "success":
         if authentication and detail.get("status") == "failure":
             raise SolusAuthError("Solus authentication rejected") from None
         raise SolusProtocolError("Unsuccessful Solus response") from None
@@ -270,8 +280,9 @@ class SolusClient:
         self._device_id = device_id
         self._locale = locale
         self._token = ""
-        self._session_id = ""
+        self._session_id = _ZERO_SESSION_ID
         self._user_id = ""
+        self._bootstrap_url = ""
         self._authenticated = False
         self._session_expired = False
 
@@ -282,24 +293,33 @@ class SolusClient:
             "DeviceID": self._device_id,
             "AppVersion": APP_VERSION,
             "PackageName": PACKAGE_NAME,
-            "PlatType": "Home Assistant",
-            "PlatVer": "1",
+            "PlatType": "Android",
+            "PlatVer": "17",
             "PlatModel": "Home Assistant",
-            "DName": "Home Assistant",
+            "DName": "Android",
             "Locale": self._locale,
-            "font": "100",
             "AppBuild": APP_BUILD,
-            "ServerRoot": self._server + "/",
         }
 
-    async def _call(self, method: str, request: dict, *, authentication=False) -> dict:
-        headers = {
+    def _catalogue_headers(self) -> dict:
+        return {
+            **_BROWSER_HEADERS,
             "x-session": self._token,
             "x-devicesession": self._session_id,
             "x-appversion": APP_VERSION,
             "x-appbuild": APP_BUILD,
             "x-apppackage": PACKAGE_NAME,
         }
+
+    async def _call(
+        self,
+        method: str,
+        request: dict,
+        *,
+        authentication=False,
+        user_id: str | None = None,
+    ) -> dict:
+        headers = self._catalogue_headers()
         if method == "LoginPreSession":
             envelope = {
                 "AppID": self._app_id,
@@ -309,13 +329,12 @@ class SolusClient:
                 "UserID": self._user_id,
                 "Request": request,
             }
-            headers.update(
-                {
-                    "Origin": self._server,
-                    "Referer": self._server + "/v4/",
-                    "X-Requested-With": "XMLHttpRequest",
-                }
-            )
+            headers = {
+                **_BROWSER_HEADERS,
+                "Origin": self._server,
+                "Referer": self._bootstrap_url,
+                "X-Requested-With": "XMLHttpRequest",
+            }
         else:
             envelope = {
                 "AppID": self._app_id,
@@ -323,7 +342,7 @@ class SolusClient:
                 "SessionID": self._session_id,
                 "DeviceID": self._device_id,
                 "Locale": self._locale,
-                "UserID": self._user_id,
+                "UserID": self._user_id if user_id is None else user_id,
                 "Request": request,
             }
         try:
@@ -348,18 +367,33 @@ class SolusClient:
     async def async_login(self, card: str, pin: str) -> list[dict]:
         """Bootstrap cookies then establish an account session; never create IDs."""
         self._authenticated = False
-        self._token = self._session_id = ""
+        self._token = ""
+        self._session_id = _ZERO_SESSION_ID
         self._user_id = card
         self._server, auth_server = await _routing(self._session, self._app_id)
         try:
-            metadata = self._metadata()
+            bootstrap_metadata = {
+                **self._metadata(),
+                "font": "",
+                "ServerRoot": self._server + "/",
+            }
             query = urlencode(
-                {"s": base64.b64encode(json.dumps(metadata).encode()).decode()}
+                {
+                    "s": base64.b64encode(
+                        json.dumps(
+                            bootstrap_metadata,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).decode("ascii")
+                }
             )
+            self._bootstrap_url = f"{auth_server}/v4/Auth.aspx?{query}"
             await _request(
                 self._session,
                 "GET",
-                f"{auth_server}/v4/Auth.aspx?{query}",
+                self._bootstrap_url,
+                headers=self._catalogue_headers(),
                 bootstrap=True,
             )
             pre = await self._call(
@@ -372,35 +406,49 @@ class SolusClient:
                 },
                 authentication=True,
             )
-            self._token = _text(_list_detail(pre, nonempty=True)[0].get("AuthToken"))
+            users = _list_detail(pre, nonempty=True)
+            self._token = _text(users[0].get("AuthToken"))
             check = await self._call(
                 "LoginCheckSession",
                 {
-                    **metadata,
+                    **self._metadata(),
+                    "NetworkType": "WiFi",
+                    "ScreenW": 384,
+                    "ScreenAW": 384,
+                    "ScreenH": 832,
+                    "ScreenAH": 832,
+                    "DPR": 1,
                     "AuthToken": self._token,
                 },
                 authentication=True,
+                user_id="",
             )
-            users = _list_detail(check, nonempty=True)
+            check_users = _decode(check.get("Detail"))
+            if check_users is not None and check_users != []:
+                users = _list_detail(check, nonempty=True)
             session = check.get("Detail2")
             if session is not None:
                 session = _decode(session)
                 if not isinstance(session, dict):
                     raise SolusProtocolError("Malformed Solus session") from None
                 destination = session.get("ServerToUse")
-                if destination and _origin(destination) != self._server:
-                    raise SolusSecurityError(
-                        "Untrusted Solus session destination"
-                    ) from None
-                if session.get("SessionID") is not None:
-                    self._session_id = str(session["SessionID"])
-            if users[0].get("AuthToken"):
-                self._token = _text(users[0]["AuthToken"])
+                if destination is not None and destination != "":
+                    if _origin(destination) != self._server:
+                        raise SolusSecurityError(
+                            "Untrusted Solus session destination"
+                        ) from None
+                session_id = session.get("SessionID")
+                if session_id is not None and session_id != "":
+                    self._session_id = _text(session_id)
+            token = users[0].get("AuthToken")
+            if token is not None and token != "":
+                self._token = _text(token)
             self._authenticated = True
             self._session_expired = False
             return users
         except SolusError as error:
-            self._token = self._session_id = ""
+            self._token = ""
+            self._session_id = _ZERO_SESSION_ID
             if isinstance(error, SolusAuthError):
                 self._session_expired = False
             raise
@@ -414,7 +462,7 @@ class SolusClient:
     async def async_get_loans(self, user_id: str) -> list[dict]:
         """Fetch loans; malformed responses never imply an empty account."""
         self._require_session()
-        section = await self._call("LoansGet", {"UserID": user_id})
+        section = await self._call("LoansGet", {"UserID": user_id}, user_id=user_id)
         rows = _list_detail(section)
         loan_ids: set[str] = set()
         for row in rows:

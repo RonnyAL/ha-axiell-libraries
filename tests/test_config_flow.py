@@ -303,3 +303,60 @@ async def test_credential_provider_failure_preserves_candidate_and_ha_connector(
     assert all(call.args[0]._session.closed for call in api[2].call_args_list)
     assert connector is shared_session.connector
     assert not connector.closed
+
+
+@pytest.mark.asyncio
+async def test_probe_responses_create_entry_after_retry_with_one_device(hass):
+    """The real client accepts absent CheckSession users and persists flow identity."""
+    from tests.test_solus import bootstrap, endpoint, fixture
+
+    with (
+        aioresponses() as mock,
+        patch("secrets.token_hex", return_value=DEVICE) as token_hex,
+        patch(
+            "custom_components.axiell_libraries.solus.async_find_nearby",
+            return_value=[LIBRARY],
+        ),
+        patch(
+            "custom_components.axiell_libraries.async_setup_entry", return_value=True
+        ),
+    ):
+        result = await credentials(hass, await start(hass))
+        bootstrap(mock)
+        mock.post(endpoint("LoginPreSession"), payload={"d": {"status": "failure"}})
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"card": CARD, "pin": PIN}
+        )
+        assert result["errors"] == {"base": "invalid_auth"}
+        bootstrap(mock)
+        mock.post(
+            endpoint("LoginPreSession"),
+            payload=fixture("login_presession_success.json"),
+        )
+        mock.post(
+            endpoint("LoginCheckSession"),
+            payload={
+                "d": {
+                    "status": "SUCCESS",
+                    "Detail": None,
+                    "Detail2": {
+                        "SessionID": "TEST_SESSION",
+                        "ServerToUse": LIBRARY.server_url + "/",
+                    },
+                }
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"card": CARD, "pin": "TEST_CHANGED_PIN"}
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert result["data"]["device_id"] == DEVICE
+        assert result["data"]["pin"] == "TEST_CHANGED_PIN"
+        token_hex.assert_called_once_with(8)
+        pre = [
+            row
+            for key, rows in mock.requests.items()
+            if "LoginPreSession" in str(key[1])
+            for row in rows
+        ]
+        assert [row.kwargs["json"]["DeviceID"] for row in pre] == [DEVICE, DEVICE]

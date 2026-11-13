@@ -322,7 +322,7 @@ async def test_login_bootstrap_and_exact_browser_and_client_envelopes():
         check = next(kw for url, kw in calls if "LoginCheckSession" in url)
         assert check["headers"]["x-session"] == TOKEN
         assert check["json"]["Request"]["AuthToken"] == TOKEN
-        assert check["json"]["SessionID"] == ""
+        assert check["json"]["SessionID"] == "00000000-0000-0000-0000-000000000000"
         loan_call = next(kw for url, kw in calls if "LoansGet" in url)
         assert loan_call["headers"]["x-session"] == "TEST_NEW_TOKEN"
         assert loan_call["headers"]["x-devicesession"] == "TEST_SESSION"
@@ -734,9 +734,7 @@ async def test_clients_do_not_share_tokens_or_change_session_defaults():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "status", [None, "TEST_UNKNOWN_STATUS", 123, "SUCCESS", "ok", "OK"]
-)
+@pytest.mark.parametrize("status", [None, "TEST_UNKNOWN_STATUS", 123, "ok", "OK"])
 async def test_malformed_auth_status_is_protocol_failure(status):
     """A provider/schema outage must not be reported as a rejected PIN."""
     with aioresponses() as mock:
