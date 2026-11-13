@@ -7,26 +7,35 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import AxiellConfigEntry, AxiellEntity
 from .models import Loan
 
-# Catalogue metadata uses provider-localized keys. Only bibliographic fields
-# belong in descriptions; account-shaped or unknown keys must not leak through.
-_BIBLIOGRAPHIC_KEYS = {"Utgiver", "Utgitt", "Publisher", "Year", "Publication year"}
-
 
 def _description(loan: Loan) -> str | None:
     """Render optional safe catalogue fields without fetching or proxying covers."""
     lines = [
         f"{label}: {value}"
         for label, value in (
+            ("Subtitle", loan.subtitle),
             ("Author", loan.author),
             ("ISBN", loan.isbn),
             ("Format", loan.format),
+            ("Item ID", loan.item_id),
+            ("Overdue", "Yes" if loan.overdue else "No"),
+            ("Renewable", "Yes" if loan.can_renew else "No"),
+            ("Renewal count", loan.renewal_count),
+            ("Renewals remaining", loan.renewals_remaining),
+            ("Renewal cost", loan.renewal_cost),
+            (
+                "Overdue specified",
+                None
+                if loan.overdue_specified is None
+                else "Yes"
+                if loan.overdue_specified
+                else "No",
+            ),
         )
-        if value
+        if value is not None
     ]
     lines.extend(
-        f"{key}: {value}"
-        for key, value in loan.main_metadata.items()
-        if key in _BIBLIOGRAPHIC_KEYS
+        f"{key}: {value}" for key, value in loan.bibliographic_metadata.items()
     )
     if loan.description:
         lines.append(loan.description)

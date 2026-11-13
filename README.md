@@ -8,15 +8,15 @@ This uses an **unofficial, reverse-engineered API**. The complete offline suite
 passes on Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
 Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.2.0** is
 prepared but unpublished.
-The owner reports Marketplace installation/update succeeded, but credentialed
-setup in HA still fails. The owner's live Python probe verified authentication
-and loan/catalogue endpoints; successful live integration setup remains
-unverified. See [validation evidence](docs/validation.md).
+The owner confirms live Home Assistant authentication, all three aggregate
+sensors, and Marketplace installation/update. New structured loan attributes
+and dashboard templates have offline coverage; browser rendering and covers
+still need an owner-run check. See [validation evidence](docs/validation.md).
 
 ## Install through Marketplace
 
-The owner has exercised Marketplace installation/update. Successful account
-setup still needs an owner-run check after installing this fix and restarting HA.
+The owner has exercised Marketplace installation/update and account setup.
+Check the new loan details after installing this change and restarting HA.
 The first planned published version remains `0.2.0`.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
@@ -75,11 +75,15 @@ IDs and due dates even when titles match. The date sensor uses the earliest
 known due date, including overdue loans, and is unknown when none is known.
 Overdue count uses the provider's flags. Missing dates remain unknown.
 
-Available author, ISBN, description, format and publisher/year metadata appear
-in item descriptions. Optional direct cover links come from `RecordGet`; missing
-covers stay absent. The integration does not proxy images. Opening a cover link
-contacts its provider from your browser. See the [UI guide](docs/home-assistant-ui.md)
-for details and `todo.get_items` use.
+**Active loans** exposes a structured `loans` attribute with one dictionary per
+issued copy: title, separate subtitle and author, due date, circulation status
+and optional catalogue details. Recorder excludes this rich attribute while
+retaining normal count history. The [UI guide](docs/home-assistant-ui.md) provides
+a standard Markdown card, filters and `todo.get_items` action example.
+To-do descriptions also carry these details; their visibility depends on the
+frontend view. Direct covers are optional and loaded by your browser from the
+provider; title/due text remains readable when an image fails. The integration
+does not download or proxy images.
 
 Loans poll every **six hours**; catalogue records have a per-entry **24-hour**
 cache, bounded to 256 records. At most four catalogue requests run concurrently.
@@ -139,10 +143,10 @@ network bodies or enable credential-bearing debug logging.
    repeated bad PINs or force upstream expiry.
 
 Record only the HA/integration version and pass/fail of each step locally,
-without titles or account data. Browser rendering, an actual HA process restart,
-and the complete live flow were **not run by the implementers**. The owner
-has separately reported Marketplace installation/update, with account setup
-still failing before this fix.
+without titles or account data. The owner has verified live authentication,
+aggregate sensors, and Marketplace installation/update. The implementers use
+offline synthetic tests; new dashboard rendering/covers, an actual HA process
+restart and the remaining lifecycle smoke checks need owner-run verification.
 
 ## Development and validation
 

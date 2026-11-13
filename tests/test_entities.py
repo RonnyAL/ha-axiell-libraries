@@ -1,5 +1,6 @@
 """Offline HA entity, service and per-account lifecycle contracts."""
 
+import json
 from copy import deepcopy
 from datetime import date
 from secrets import token_hex
@@ -7,7 +8,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from homeassistant.components.recorder.db_schema import StateAttributes
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
+from homeassistant.core import EVENT_STATE_CHANGED, Event
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -357,5 +360,208 @@ async def test_all_unknown_dates_keep_loans_without_fabricating_metadata(hass, a
     assert hass.states.get(ids["next_due_date"]).state == "unknown"
     items = await get_items(hass, ids["loans"])
     assert items == [
-        {"summary": "Unknown date", "uid": "loan-c", "status": "needs_action"}
+        {
+            "summary": "Unknown date",
+            "uid": "loan-c",
+            "status": "needs_action",
+            "description": "Overdue: Yes\n\nRenewable: No",
+        }
     ]
+
+
+async def test_active_sensor_exposes_json_safe_copy_details_without_internal_data(
+    hass, api
+):
+    """Catch absent serialization, record-key deduplication and metadata leaks."""
+    api.rows[0].update(
+        subtitle="A series, not an author",
+        itemID="copy-a",
+        canRenew=True,
+        RenewalCount=0,
+        RenewalsRemaining=-1,
+        renewalCost=0,
+        OverdueSpecified=True,
+        AuthToken="SYNTHETIC_PRIVATE_DETAIL",
+    )
+    api.rows[1]["recordID"] = "record-a"
+    config = entry(hass)
+    ids = await setup(hass, config)
+    state = hass.states.get(ids["active_loans"])
+    details = state.attributes["loans"]
+    assert json.loads(json.dumps(details)) == details
+    assert details[0] == {
+        "loan_id": "loan-a",
+        "record_id": "record-a",
+        "item_id": "copy-a",
+        "title": "Same title",
+        "subtitle": "A series, not an author",
+        "author": "Sample Author",
+        "due_date": "2026-11-19",
+        "overdue": False,
+        "overdue_specified": True,
+        "can_renew": True,
+        "renewal_count": 0,
+        "renewals_remaining": None,
+        "renewal_cost": 0,
+        "source": "ILS",
+        "isbn": "9780000000002",
+        "image_url": "https://images.example.org/cover.jpg",
+        "description": "A synthetic catalogue description.",
+        "format": "Bok",
+        "publisher": "Sample Press",
+        "publication_year": "2026",
+        "language": None,
+        "subjects": None,
+        "main_metadata": {"Utgiver": "Sample Press", "Utgitt": "2026"},
+    }
+    assert [
+        (item["loan_id"], item["record_id"], item["due_date"]) for item in details[:2]
+    ] == [("loan-a", "record-a", "2026-11-19"), ("loan-b", "record-a", "2026-11-26")]
+    assert details[2]["due_date"] is None
+    assert details[2]["image_url"] is None
+    assert details[2]["main_metadata"] == {}
+    for other in ("next_due_date", "overdue_loans", "loans"):
+        assert "loans" not in hass.states.get(ids[other]).attributes
+    exposed = json.dumps(details)
+    for secret in (
+        CARD,
+        PIN,
+        DEVICE,
+        "SYNTHETIC_PRIVATE_DETAIL",
+        "api_fields",
+        "dueObject",
+    ):
+        assert secret not in exposed
+
+
+async def test_recorder_filters_loan_details_but_retains_count_state(hass, api):
+    """Exercise Recorder's actual serializer with entity-produced state_info."""
+    config = entry(hass)
+    ids = await setup(hass, config)
+    state = hass.states.get(ids["active_loans"])
+    assert state.attributes["loans"]
+    event = Event(
+        EVENT_STATE_CHANGED, {"entity_id": state.entity_id, "new_state": state}
+    )
+    recorded = json.loads(StateAttributes.shared_attrs_bytes_from_event(event, None))
+    assert "loans" not in recorded
+    assert recorded["friendly_name"] == state.attributes["friendly_name"]
+    assert state.state == "3"
+
+
+async def test_loan_attribute_refresh_replaces_returned_renewed_and_new_copies(
+    hass, api
+):
+    config = entry(hass)
+    ids = await setup(hass, config)
+    api.rows = [
+        {
+            **rows()[0],
+            "dueObject": "/Date(1795651200000)/",
+            "Overdue": True,
+            "canRenew": True,
+            "RenewalCount": 1,
+            "RenewalsRemaining": 2,
+        },
+        {**rows()[1], "loanID": "loan-new", "recordID": "new-record"},
+    ]
+    await config.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    details = hass.states.get(ids["active_loans"]).attributes["loans"]
+    assert [item["loan_id"] for item in details] == ["loan-a", "loan-new"]
+    assert details[0]["due_date"] == "2026-11-26"
+    assert details[0]["overdue"] is True
+    assert details[0]["can_renew"] is True
+    assert details[0]["renewal_count"] == 1
+    assert details[0]["renewals_remaining"] == 2
+    assert details[1]["author"] == "Sample Author"
+    api.rows = []
+    await config.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(ids["active_loans"]).attributes["loans"] == []
+
+
+async def test_each_account_exposes_its_own_details_and_preserves_device(hass, api):
+    first = entry(hass)
+    first_ids = await setup(hass, first)
+    api.rows = [
+        {**rows()[0], "loanID": "second-account-copy", "title": "Second account"}
+    ]
+    second = entry(hass, "1")
+    second_ids = await setup(hass, second)
+    assert (
+        hass.states.get(first_ids["active_loans"]).attributes["loans"][0]["loan_id"]
+        == "loan-a"
+    )
+    assert (
+        hass.states.get(second_ids["active_loans"]).attributes["loans"][0]["title"]
+        == "Second account"
+    )
+    assert first.data["device_id"] == DEVICE
+    assert second.data["device_id"] == "fedcba9876543210"
+
+
+async def test_todo_description_separates_subtitle_and_preserves_safe_provider_labels(
+    hass, api
+):
+    api.rows = [
+        {
+            **rows()[0],
+            "subtitle": "A series",
+            "itemID": "copy-a",
+            "canRenew": True,
+            "RenewalCount": 0,
+            "RenewalsRemaining": 2,
+            "renewalCost": 0,
+            "OverdueSpecified": False,
+        }
+    ]
+
+    async def record(client, record_id, source):
+        return {
+            "RecordID": record_id,
+            "Author": "Real Author",
+            "MainMetadata": [
+                {"Key": "Språk", "Value": "Norsk"},
+                {"Key": "Subjects", "Value": "Fiction; history"},
+                {"Key": "Unknown", "Value": "SYNTHETIC_PRIVATE_DETAIL"},
+                {"Key": "Card", "Value": "SYNTHETIC_PRIVATE_DETAIL"},
+            ],
+        }
+
+    with patch(
+        "custom_components.axiell_libraries.solus.SolusClient.async_get_record", record
+    ):
+        ids = await setup(hass, entry(hass))
+    description = (await get_items(hass, ids["loans"]))[0]["description"]
+    for expected in (
+        "Subtitle: A series",
+        "Author: Real Author",
+        "Språk: Norsk",
+        "Subjects: Fiction; history",
+        "Item ID: copy-a",
+        "Renewable: Yes",
+        "Renewal count: 0",
+        "Renewals remaining: 2",
+        "Renewal cost: 0",
+        "Overdue: No",
+        "Overdue specified: No",
+    ):
+        assert expected in description
+    assert "Author: A series" not in description
+    assert "SYNTHETIC_PRIVATE_DETAIL" not in description
+
+
+async def test_cover_failure_needs_no_http_image_route_to_setup_or_refresh(hass, api):
+    """Any attempted cover download fails at the HA-managed HTTP session boundary."""
+    with patch(
+        "aiohttp.ClientSession._request",
+        side_effect=AssertionError("Unexpected HTTP image request"),
+    ):
+        config = entry(hass)
+        ids = await setup(hass, config)
+        await config.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+    details = hass.states.get(ids["active_loans"]).attributes["loans"]
+    assert details[0]["image_url"] == "https://images.example.org/cover.jpg"
+    assert details[0]["title"] == "Same title"
