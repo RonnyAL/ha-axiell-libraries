@@ -9,6 +9,7 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
+from custom_components.axiell_libraries.models import Loan
 from custom_components.axiell_libraries.solus import (
     SolusAuthError,
     SolusClient,
@@ -208,6 +209,93 @@ async def test_malformed_loans_are_not_empty_accounts(detail):
             else:
                 with pytest.raises(SolusProtocolError):
                     await api.async_get_loans(CARD)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["loanID", "title"])
+@pytest.mark.parametrize("value", [None, "", " \t\n", 123, False, {}, []])
+async def test_invalid_required_loan_fields_are_protocol_failure(field, value, caplog):
+    row = {"loanID": "loan-a", "title": "Example book", field: value}
+    row["description"] = f"{CARD} {PIN} {TOKEN} {DEVICE}"
+    with aioresponses() as mock:
+        login(mock)
+        mock.post(
+            endpoint("LoansGet"),
+            payload={"d": {"status": "success", "Detail": [row]}},
+        )
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            await api.async_login(CARD, PIN)
+            with pytest.raises(SolusProtocolError) as caught:
+                await api.async_get_loans(CARD)
+    assert all(
+        secret not in str(caught.value) + caplog.text
+        for secret in (CARD, PIN, TOKEN, DEVICE)
+    )
+    assert caught.value.__suppress_context__
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["loanID", "title"])
+async def test_missing_required_loan_fields_are_protocol_failure(field):
+    row = {"loanID": "loan-a", "title": "Example book"}
+    del row[field]
+    with aioresponses() as mock:
+        login(mock)
+        mock.post(
+            endpoint("LoansGet"),
+            payload={"d": {"status": "success", "Detail": [row]}},
+        )
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            await api.async_login(CARD, PIN)
+            with pytest.raises(SolusProtocolError):
+                await api.async_get_loans(CARD)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("second_id", ["loan-a", " \tloan-a\n"])
+async def test_duplicate_normalized_loan_ids_are_protocol_failure(second_id):
+    rows = [
+        {"loanID": "loan-a", "title": "Example book A"},
+        {"loanID": second_id, "title": "Example book B"},
+    ]
+    with aioresponses() as mock:
+        login(mock)
+        mock.post(
+            endpoint("LoansGet"),
+            payload={"d": {"status": "success", "Detail": rows}},
+        )
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            await api.async_login(CARD, PIN)
+            with pytest.raises(SolusProtocolError):
+                await api.async_get_loans(CARD)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "optional",
+    [{}, {"dueObject": None}, {"dueObject": {}, "recordID": [], "Source": 123}],
+)
+async def test_valid_loan_identity_allows_unknown_date_and_optional_metadata(optional):
+    rows = [
+        {"loanID": " \tloan-a\n", "title": " Example book ", **optional},
+        {"loanID": "loan-b", "title": "Example book", "dueObject": "invalid"},
+    ]
+    with aioresponses() as mock:
+        login(mock)
+        mock.post(
+            endpoint("LoansGet"),
+            payload={"d": {"status": "success", "Detail": rows}},
+        )
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            await api.async_login(CARD, PIN)
+            loans = [Loan.from_api(row) for row in await api.async_get_loans(CARD)]
+    assert [item.loan_id for item in loans] == ["loan-a", "loan-b"]
+    assert [item.title for item in loans] == ["Example book", "Example book"]
+    assert all(item.due_date is None for item in loans)
 
 
 @pytest.mark.asyncio

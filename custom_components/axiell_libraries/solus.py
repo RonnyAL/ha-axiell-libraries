@@ -398,7 +398,15 @@ class SolusClient:
         """Fetch loans; malformed responses never imply an empty account."""
         self._require_session()
         section = await self._call("LoansGet", {"UserID": user_id})
-        return _list_detail(section)
+        rows = _list_detail(section)
+        loan_ids: set[str] = set()
+        for row in rows:
+            loan_id = _text(row.get("loanID"))
+            _text(row.get("title"))
+            if loan_id in loan_ids:
+                raise SolusProtocolError("Malformed Solus loans response") from None
+            loan_ids.add(loan_id)
+        return rows
 
     async def async_get_record(self, record_id: str, source: str) -> dict | None:
         """Fetch optional metadata; callers may catch SolusError per record."""

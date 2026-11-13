@@ -41,7 +41,7 @@ Paths below are relative to the repository. `cc/` abbreviates
 `custom_components/axiell_libraries/`. Historical task outputs come from the
 local task reports; timing is the recorded run, not a performance guarantee.
 Task 1–5 independent reviews were recorded as complete by the controller.
-Task 6 independent review and final broad review remain pending.
+Task 6 review completion remains pending the controller's scoped final re-review.
 
 | Task / local commit | Files changed | RED → GREEN and final regression output | API assumptions / next task |
 | --- | --- | --- | --- |
@@ -62,7 +62,46 @@ Task 4's review regression used the real `SolusClient`, HA session, mocked HTTP
 boundary and more than four uncached records to exercise queued work, rather
 than relying only on a mocked client's expiry behavior.
 
-## Final commands and available HA tooling
+## Final review boundary fix
+
+Review found that `LoansGet` accepted dictionary rows without usable `loanID` or
+`title`, including duplicate IDs. Those rows could replace a valid snapshot with
+blank or ambiguous to-do items. The client now requires both fields to be
+nonempty strings and rejects IDs duplicated after whitespace trimming. The
+error text is static; optional dates and catalogue fields remain permissive,
+and a real empty list remains valid. This is defensive validation, not a new
+live API observation.
+
+Files changed for this fix: `cc/solus.py`, `tests/test_solus.py`,
+`tests/test_coordinator.py`, `docs/protocol.md` and this ledger. The focused
+regressions exercise required-field types and omissions, raw/normalized duplicate
+IDs, permissive optional values, and real `SolusClient`/HA coordinator/to-do
+behavior across a valid refresh followed by malformed HTTP success. They assert
+the exact previous snapshot is retained, the update fails, the entity becomes
+unavailable, and the previous distinct nonblank to-do IDs and titles remain.
+
+```text
+$ /tmp/axiell-ha-venv/bin/python -m pytest -q tests/test_solus.py tests/test_coordinator.py -k 'required_loan_fields or duplicate_normalized_loan_ids or valid_loan_identity or real_client_malformed_loans' --tb=short
+RED: 22 failed, 3 passed, 70 deselected in 0.41s
+GREEN: 25 passed, 70 deselected in 0.29s
+$ /tmp/axiell-ha-venv/bin/python -m pytest -q
+159 passed in 1.06s
+$ /tmp/axiell-ha-venv/bin/ruff check .
+All checks passed!
+$ /tmp/axiell-ha-venv/bin/ruff format --check .
+23 files already formatted
+$ git diff --check
+(no output, exit 0)
+```
+
+RED exited 1 for the expected acceptance/snapshot assertions; all GREEN and
+quality commands exited 0. The 25 additions increase the historical 134-test
+suite to 159 tests. Tests were offline, with the same authorized local event-loop
+socket escalation and HA network guard described above. No live account test
+was performed. Next: the controller's scoped final re-review of this fix; Task 6
+review completion remains pending.
+
+## Historical final commands and available HA tooling
 
 Run from the checkout in the verified environment:
 
@@ -135,8 +174,8 @@ staged. Final documentation is text and contains no owner credentials.
   complete-integration success is claimed. Reload/reauth identity is tested
   offline. The earlier owner's protocol probe is separate evidence.
 
-Next: the controller performs Task 6 and broad independent review, addresses
-findings and reruns affected/full checks. Only after that, the owner may use the
+Next: the controller performs the scoped final re-review of the loan-validation
+fix and confirms Task 6 review completion. Only after that, the owner may use the
 [local HA UI smoke test](../README.md#optional-owner-run-live-smoke-test), entering
 card/PIN in HA only. Keep credentials, traces and account data out of chat,
 issues, logs and files, and keep this repository private.

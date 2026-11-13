@@ -25,6 +25,7 @@ from custom_components.axiell_libraries.solus import (
     SolusSecurityError,
     SolusSessionExpired,
 )
+from custom_components.axiell_libraries.todo import AxiellTodo
 
 CARD = "TEST-CARD-0000"
 PIN = "TEST_PIN_NOT_VALID"
@@ -149,6 +150,79 @@ async def test_explicit_empty_loans_replaces_previous_data(setup_coordinator):
     await coordinator.async_refresh()
     assert coordinator.data.loans == ()
     assert coordinator.last_update_success
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [{}, {}],
+        [{"loanID": "loan-c"}],
+        [loan(loan_id="loan-c"), loan(loan_id="loan-c")],
+        [loan(loan_id="loan-c"), loan(loan_id=" \tloan-c\n")],
+    ],
+    ids=["blank-rows", "missing-title", "duplicate-ids", "normalized-duplicate-ids"],
+)
+async def test_real_client_malformed_loans_retain_snapshot_and_unavailable_todo(
+    setup_coordinator, hass, rows, caplog
+):
+    """A malformed successful HTTP response cannot replace valid issued copies."""
+    _, entry, _ = setup_coordinator
+    server = "https://process-test.sol.us"
+
+    def endpoint(method):
+        return re.compile(rf"{server}/v4/Cat.asmx/{method}\?rnd=.+")
+
+    with aioresponses() as http:
+        http.get("https://repo.sol.us/id/TEST-APP/2026.42", payload={"Server": server})
+        http.get(re.compile(rf"{server}/v4/Auth.aspx\?s=.+"), body="")
+        for method in ("LoginPreSession", "LoginCheckSession"):
+            http.post(
+                endpoint(method),
+                payload={
+                    "d": {
+                        "status": "success",
+                        "Detail": [{"AuthToken": "TEST_TOKEN"}],
+                    }
+                },
+            )
+        for response_rows in (
+            [loan(record="", loan_id="loan-a"), loan(record="", loan_id="loan-b")],
+            rows,
+        ):
+            http.post(
+                endpoint("LoansGet"),
+                payload={"d": {"status": "success", "Detail": response_rows}},
+            )
+        session = async_create_clientsession(
+            hass, cookie_jar=aiohttp.CookieJar(), auto_cleanup=False
+        )
+        try:
+            client = SolusClient(session, "TEST-APP", server, DEVICE)
+            coordinator = AxiellCoordinator(hass, entry, client)
+            await coordinator.async_config_entry_first_refresh()
+            previous = coordinator.data
+            entry.runtime_data = coordinator
+            todo = AxiellTodo(entry)
+            assert todo.available
+            assert [item.uid for item in todo.todo_items] == ["loan-a", "loan-b"]
+
+            await coordinator.async_refresh()
+
+            assert coordinator.data is previous
+            assert not coordinator.last_update_success
+            assert isinstance(coordinator.last_exception, UpdateFailed)
+            assert not todo.available
+            assert [item.uid for item in todo.todo_items] == ["loan-a", "loan-b"]
+            assert [item.summary for item in todo.todo_items] == [
+                "Example book",
+                "Example book",
+            ]
+            assert all(
+                secret not in str(coordinator.last_exception) + caplog.text
+                for secret in (CARD, PIN, DEVICE, "TEST_TOKEN")
+            )
+        finally:
+            session.detach()
 
 
 @pytest.mark.parametrize("stage", ["login", "loans", "record"])

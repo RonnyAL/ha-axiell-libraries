@@ -197,6 +197,15 @@ expiry requests reauthentication; transport/protocol failures produce a static
 `UpdateFailed`. Failed loan updates retain the previous snapshot and mark the
 coordinator unavailable; an explicit successful `[]` replaces it with zero loans.
 
+At the `LoansGet` boundary, every row must contain nonempty string `loanID` and
+`title` values. Loan IDs must be unique after trimming whitespace, using the
+same normalization as the loan model. Missing, malformed or duplicate identities
+reject the entire response with a static protocol error, preserving the previous
+snapshot and making entities unavailable instead of publishing blank or ambiguous
+to-do items. Missing or malformed `dueObject` and optional catalogue fields remain
+permissive. This is a defensive integration policy verified with synthetic
+responses, not a newly observed upstream guarantee.
+
 Catalogue records are cached by `(record_id, source)` for 24 hours, with an
 entry-local least-recently-used limit of 256 records and at most four concurrent
 `RecordGet` calls. Distinct issued copies share metadata requests while keeping
