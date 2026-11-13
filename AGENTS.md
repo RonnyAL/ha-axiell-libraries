@@ -2,7 +2,7 @@
 
 Use the installed **Superpowers** workflow. Begin with `superpowers:using-superpowers`, read the already-approved design and implementation plan, then use `superpowers:subagent-driven-development` if available (otherwise `superpowers:executing-plans`). Apply `superpowers:test-driven-development`, code review, and `superpowers:verification-before-completion`; do not skip tests.
 
-The owner has already chosen the design: **native Home Assistant custom integration; multiple config entries; persistent DeviceID per entry; read-only v1; Solus API; library discovery with searchable nearby results and manual LocationID**. Do not spend a session re-asking these decisions. The owner has subsequently authorized explicit individual renewal with informed consent, as specified in `docs/superpowers/specs/2026-11-13-loan-renewal-design.md` and its implementation plan. Historical v1 documents remain read-only; the to-do entity remains read-only. No automatic/bulk renewal, live renewal test or release publication is authorized by this extension.
+The owner has already chosen the design: **native Home Assistant custom integration; multiple config entries; persistent DeviceID per entry; read-only v1; Solus API; library discovery with searchable nearby results and manual LocationID**. Do not spend a session re-asking these decisions. The owner has subsequently authorized explicit individual renewal with informed consent, as specified in `docs/superpowers/specs/2026-11-13-loan-renewal-design.md` and its implementation plan. Historical v1 documents remain read-only; the to-do entity remains read-only. No automatic/bulk renewal or live renewal test is authorized. The owner has separately authorized publication of 0.4.0 only; future release publications and live renewal tests require separate explicit instruction.
 
 Read in this order:
 1. `docs/superpowers/specs/2026-11-13-axiell-libraries-design.md`
@@ -20,7 +20,7 @@ Read in this order:
 - Use `LoansGet.dueObject` (.NET `/Date(1795046400000)/` => 2026-11-19) for dates. Avoid parsing `dueDisplay` HTML. `RenewalsRemaining=-1` means unknown, NOT unlimited.
 - Enrich only when needed using `RecordGet(RecordID,Source,SearchLimit)`; prefer `RecordGet.Author` over `LoansGet.subtitle` fallback; use `RecordGet.ImageUrl`/`ImageUrlLarge` direct, optional when missing. The `ItemImage.aspx` fallback returned an identical placeholder for all loans and must NOT be the primary image source.
 - Keep tests completely offline, use synthetic fixtures. Add config-flow tests for duplicate accounts, multiple accounts, reauth, persistent DeviceID and provider failure; add API tests for malformed dates, empty lists, session expiration, and partial catalogue failure.
-- Update docs and keep commits small. Commit only green tests or explicitly explain blockers. Do not publish this repo publicly or change its visibility.
+- Update docs and keep commits small. Commit only green tests or explicitly explain blockers. Preserve the repository's existing visibility. Publication of release 0.4.0 is explicitly owner-authorized; future release publications require separate explicit instruction.
 
 ## Never commit these
 

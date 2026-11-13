@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — prepared, unpublished
+## 0.4.0
 
 - Add the administrator action `axiell_libraries.renew_loan` for one explicitly
   selected account and loan; preserve read-only to-do entities.
@@ -12,10 +12,11 @@
   pending consent, rejection, uncertain results and successful renewal with a
   failed HA refresh. Redact known secrets from bounded provider messages.
 - Document manual action usage, privacy limits and existing AppID/TemplateID
-  assumption. Prepare matching version, release notes and manual workflow input.
+  assumption. Use manifest `0.4.0`, canonical tag `v0.4.0` and release title `0.4.0`.
 
-No live renewal or provider acknowledgement has been tested. This change creates
-no tag or release and changes no repository visibility.
+No live renewal or provider acknowledgement has been tested. The owner has
+explicitly authorized publication of 0.4.0 only; future publications and live
+renewal tests require separate explicit instruction. Preserve repository visibility.
 
 ## 0.3.0 — published; installed by the owner
 

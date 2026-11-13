@@ -6,8 +6,9 @@ its own Home Assistant config entry, persistent DeviceID, session and entities.
 
 This uses an **unofficial, reverse-engineered API**. Runtime targets are
 Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
-Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.4.0** is
-prepared but unpublished; the owner has installed the published **0.3.0** release.
+Python **3.14.7 locally / 3.14.10 in CI**. Version **0.4.0** adds explicit
+individual loan renewal with informed consent.
+The owner has installed the published **0.3.0** release.
 The owner confirms live Home Assistant authentication, all three aggregate
 sensors, and Marketplace installation/update. New structured loan attributes
 and dashboard templates have offline coverage; browser rendering and covers
@@ -17,8 +18,8 @@ still need an owner-run check. See [validation evidence](docs/validation.md).
 
 The owner has exercised Marketplace installation/update and account setup.
 Check the new loan details after installing this change and restarting HA.
-Version `v0.3.0` is published and installed by the owner. The renewal action
-described below belongs to the unreleased `0.4.0` update.
+The owner has installed `v0.3.0`; version `0.4.0` adds the renewal action
+described below.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
    **Settings → Marketplace → Add from link** and enter
@@ -194,11 +195,12 @@ for local and hosted evidence and the remaining owner-run checks.
 
 ## Maintainer releases
 
-Version 0.3.0 is published and installed by the owner. This branch prepares
-manifest `0.4.0`, Git tag `v0.4.0`, release title `0.4.0` and reviewed notes;
-it creates no tag or release and changes no repository visibility.
+The canonical release identifiers are manifest `0.4.0`, Git tag `v0.4.0`
+and release title `0.4.0`. The owner has explicitly authorized publication of
+0.4.0 only; future publications and live renewal tests require separate explicit
+instruction. Preserve repository visibility.
 
-After review, publication approval and merge to `main`, a maintainer may dispatch
+After review and merge to `main`, a maintainer may dispatch
 **Actions → Release** with numeric input `0.4.0`. Full reusable validation,
 tag/manifest agreement and reviewed notes gate atomic tag creation at the
 validated dispatch SHA. Existing tags are refused. No attached ZIP is required.

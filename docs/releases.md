@@ -1,8 +1,9 @@
 # Maintainer releases
 
-Version 0.3.0 is published and installed by the owner. Version **0.4.0** is
-prepared for review and remains unpublished. This implementation creates no Git
-tag or GitHub Release. The owner has confirmed existing live authentication,
+Version **0.4.0** adds explicit individual loan renewal with informed consent.
+The owner has explicitly authorized publication of 0.4.0 only; future
+publications and live renewal tests require separate explicit instruction.
+The owner has installed 0.3.0 and confirmed existing live authentication,
 aggregate sensors and Marketplace installation/update. Renewal and provider
 prompt semantics remain unverified live; browser covers and a separate process
 restart also need owner-run checks. Repository visibility must stay unchanged.
@@ -29,11 +30,12 @@ update checks (the documented interval is 48 hours). Catalog propagation has a
 separate delay. A published release is not necessarily displayed immediately.
 Back up HA and restart after installing an integration update.
 
-## Publication after approval
+## Publication workflow
 
 1. Review the feature changes, [changelog](../CHANGELOG.md) and
    [0.4.0 notes](releases/0.4.0.md), complete the remaining owner-run checks or
-   explicitly record their limits, obtain publication approval, and merge to `main`.
+   explicitly record their limits, and merge to `main`. The owner has authorized
+   publication of 0.4.0; obtain separate explicit instruction for later versions.
 2. Run **Actions → Release → Run workflow**, selecting `main` and numeric
    input `0.4.0` (no `v`). Publication is manual; pushes and pull requests only
    validate. Prepare a reviewed manifest/notes change first for later versions.

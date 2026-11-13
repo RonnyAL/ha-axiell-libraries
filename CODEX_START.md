@@ -13,12 +13,14 @@ repository state rather than repeating the implementation from Task 1.
 > Solus `LoginPreSession` then `LoginCheckSession`, and read-only v1. The owner
 > later authorized explicit individual renewal with informed consent; follow
 > the approved loan-renewal spec and plan. The to-do entity stays read-only.
-> No automatic/bulk renewal, live write test or publication is authorized. Preserve
-> device identity through retries, restart and PIN updates. Use offline synthetic
-> tests, TDD for behavior changes, independent review and fresh verification.
+> The owner has explicitly authorized publication of 0.4.0 only. Future
+> publications and live renewal tests require separate explicit instruction;
+> automatic/bulk renewal remains unauthorized. Preserve device identity through
+> retries, restart and PIN updates. Use offline synthetic tests, TDD for behavior
+> changes, independent review and fresh verification.
 > Never commit APKs, raw traffic, credentials or personal responses. Keep the
-> repository private and do not push, publish or change visibility without the
-> owner's explicit instruction. State the tested HA version and remaining live
+> repository visibility unchanged and push or publish only within the owner's
+> explicit instructions. State the tested HA version and remaining live
 > assumptions; do not infer compatibility with the latest HA release.
 
 Current runtime targets are Core and official `pytest-homeassistant` 2026.11.1
@@ -28,8 +30,9 @@ counts and pending final gates. Use `requirements-dev.txt` and
 the discontinued custom-component harness. Installed Superpowers skills provide
 the workflow; original v1 design docs are historical.
 
-The owner has installed the published 0.3.0 release. This branch prepares 0.4.0
-with an admin `axiell_libraries.renew_loan` action; no tag or release is created.
+The owner has installed the published 0.3.0 release. Version 0.4.0 adds the admin
+`axiell_libraries.renew_loan` action. Its canonical tag is `v0.4.0`; the manifest
+version and release title are `0.4.0`. Publication of 0.4.0 is owner-authorized.
 See `docs/home-assistant-ui.md` for manual, expiring confirmation IDs and unknown
 outcomes. The main-only Release workflow reruns validation, checks the exact
 input against the manifest, creates a new tag atomically, then publishes notes.
