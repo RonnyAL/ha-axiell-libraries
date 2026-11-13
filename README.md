@@ -94,12 +94,18 @@ update makes entities unavailable while retaining the previous snapshot
 internally; a successful empty response displays zero loans. Partial catalogue
 failure keeps loans visible with available metadata.
 
-The to-do list cannot complete, edit, create or delete loans. Administrators
-can explicitly renew one loan with `axiell_libraries.renew_loan`; every known
+The to-do list cannot complete, edit, create or delete loans. Users with control
+permission for an Axiell Libraries entity on the selected account can explicitly
+renew one loan with `axiell_libraries.renew_loan`; every known
 fee or provider prompt requires manual consent. See the
 [renewal action guide](docs/home-assistant-ui.md#renew-one-loan). Returns,
 reservations and account changes remain library operations. There are no
 automatic or bulk renewals. Live renewal remains unverified.
+
+HA's default Users group grants control of all entities, including all library
+accounts. Restricting accounts requires HA permission policies that restrict
+those entities; hiding a dashboard or card is not access control. This
+integration adds no permission editor and does not change HA permissions.
 
 ## PIN changes and privacy
 

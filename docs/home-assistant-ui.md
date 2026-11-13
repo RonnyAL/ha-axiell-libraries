@@ -132,8 +132,8 @@ data:
 The response contains `items` under the entity ID, with `uid`, `summary`,
 `status`, and available `due`/`description`. The list cannot complete, edit,
 create or delete loans; mutation actions are rejected. Returns and
-reservations must be done through the library. Renewal uses the separate admin
-action below; the to-do list remains read-only.
+reservations must be done through the library. Renewal uses the separate
+account-authorized action below; the to-do list remains read-only.
 
 ## Renew one loan
 
@@ -141,13 +141,25 @@ Version **0.4.0** adds this action; the owner's installed published 0.3.0
 does not include it. Renewal has offline coverage only. No live renewal or
 provider challenge acknowledgement has been verified.
 
-As a Home Assistant administrator, open **Developer tools → Actions**, choose
+The action requires control permission for an Axiell Libraries entity on the
+selected account. Administrators can open **Developer tools → Actions**, choose
 **Axiell Libraries: Renew loan**, and select the library/card account. The account
 must be loaded; there is no default account. Trusted HA system contexts may
 also call the action. In **Developer tools → States**, find that account's
 Active loans sensor, then copy the issued copy's `loan_id` from its `loans`
 attribute. Use `loan_id`, never `record_id`, title or another account's ID.
 The account selector supplies `config_entry_id`; use YAML mode to see its value.
+
+Ordinary non-admin users may call this action from a dashboard using the same
+fields. Authorization uses the server-provided HA identity and checks current
+control permission on every call, including confirmation. Read-only users cannot
+renew. Renaming entities does not change account selection.
+
+HA's default **Users** group grants control of all entities, so ordinary users
+can normally renew across all configured library accounts. Account restrictions
+require HA permission policies that actually restrict those entities. Hiding a
+dashboard or card is not access control. This integration provides no custom ACL
+UI and does not grant or modify permissions.
 
 First call, with synthetic placeholders replaced by the selected account and loan:
 

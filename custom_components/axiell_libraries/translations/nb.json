@@ -77,7 +77,7 @@
   "services": {
     "renew_loan": {
       "name": "Forny lån",
-      "description": "Forny ett lån på den valgte kontoen. Vurder eventuelle gebyrer og meldinger før du bekrefter. Krever administratortilgang.",
+      "description": "Forny ett lån på den valgte kontoen. Vurder eventuelle gebyrer og meldinger før du bekrefter. Krever kontrolltilgang til en Axiell Libraries-entitet på den valgte kontoen.",
       "fields": {
         "config_entry_id": {
           "name": "Bibliotekkonto",

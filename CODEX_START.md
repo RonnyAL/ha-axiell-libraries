@@ -30,9 +30,14 @@ counts and pending final gates. Use `requirements-dev.txt` and
 the discontinued custom-component harness. Installed Superpowers skills provide
 the workflow; original v1 design docs are historical.
 
-The owner has installed the published 0.3.0 release. Version 0.4.0 adds the admin
-`axiell_libraries.renew_loan` action. Its canonical tag is `v0.4.0`; the manifest
-version and release title are `0.4.0`. Publication of 0.4.0 is owner-authorized.
+The owner has installed the published 0.3.0 release. Version 0.4.0 adds the
+`axiell_libraries.renew_loan` action. Current authorization requires control of an
+Axiell entity on the selected account for every user invocation, including
+confirmation. Non-admin dashboard calls use the same server-side check. Default
+HA Users control all entities; hiding a dashboard/card does not restrict accounts.
+Restricting accounts requires actual HA entity permission policies.
+The canonical 0.4.0 tag is `v0.4.0`; the manifest version and release title are
+`0.4.0`. Publication of 0.4.0 is owner-authorized.
 See `docs/home-assistant-ui.md` for manual, expiring confirmation IDs and unknown
 outcomes. The main-only Release workflow reruns validation, checks the exact
 input against the manifest, creates a new tag atomically, then publishes notes.

@@ -325,7 +325,7 @@ as UserID, matching existing LoansGet.
 
 The per-entry coordinator owns fresh loan lookup, consent and all I/O. Its
 operation lock serializes polling and renewal; writes are never retried
-automatically. The HA admin action is a thin adapter with optional response
+automatically. The HA account-authorized action is a thin adapter with optional response
 data. See the [action and confirmation guide](home-assistant-ui.md#renew-one-loan)
 for ten-minute memory-only tokens, partial success and unknown-outcome handling.
 Known-secret redaction cannot remove arbitrary personal provider prose. No live

@@ -1,6 +1,7 @@
-"""Administrative action adapter for explicit, individual loan renewal."""
+"""Account-authorized action adapter for explicit, individual loan renewal."""
 
 import probatio
+from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -8,8 +9,14 @@ from homeassistant.core import (
     SupportsResponse,
     callback,
 )
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+    UnknownUser,
+)
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import service
 
 from .const import DOMAIN
@@ -35,11 +42,32 @@ _OPERATION_ERRORS = {
 }
 
 
+async def _async_authorize_entry(call: ServiceCall, entry_id: str) -> None:
+    """Require current control of an Axiell entity on the selected account."""
+    user_id = call.context.user_id
+    if user_id is None:
+        return
+    user = await call.hass.auth.async_get_user(user_id)
+    if user is None:
+        raise UnknownUser(
+            context=call.context, permission=POLICY_CONTROL, user_id=user_id
+        )
+    if user.is_active:
+        registry = er.async_get(call.hass)
+        for entity in er.async_entries_for_config_entry(registry, entry_id):
+            if entity.platform == DOMAIN and user.permissions.check_entity(
+                entity.entity_id, POLICY_CONTROL
+            ):
+                return
+    raise Unauthorized(context=call.context, permission=POLICY_CONTROL, user_id=user_id)
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register once at integration setup, independent of entry lifecycle."""
 
     async def async_renew_loan(call: ServiceCall) -> ServiceResponse:
+        await _async_authorize_entry(call, call.data["config_entry_id"])
         entry = service.async_get_config_entry(
             hass, DOMAIN, call.data["config_entry_id"]
         )
@@ -91,8 +119,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
             )
         return None
 
-    service.async_register_admin_service(
-        hass,
+    hass.services.async_register(
         DOMAIN,
         "renew_loan",
         async_renew_loan,
