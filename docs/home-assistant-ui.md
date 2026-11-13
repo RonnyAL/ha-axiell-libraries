@@ -137,8 +137,8 @@ action below; the to-do list remains read-only.
 
 ## Renew one loan
 
-This action is new in **0.4.0 (unreleased)**; the owner's installed published
-0.3.0 does not include it. Renewal has offline coverage only. No live renewal or
+Version **0.4.0** adds this action; the owner's installed published 0.3.0
+does not include it. Renewal has offline coverage only. No live renewal or
 provider challenge acknowledgement has been verified.
 
 As a Home Assistant administrator, open **Developer tools → Actions**, choose
