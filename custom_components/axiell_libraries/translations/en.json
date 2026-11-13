@@ -77,7 +77,7 @@
   "services": {
     "renew_loan": {
       "name": "Renew loan",
-      "description": "Explicitly renew one loan in the selected account. Review any fee or provider prompt before confirming. Administrator access required.",
+      "description": "Explicitly renew one loan in the selected account. Review any fee or provider prompt before confirming. Requires control permission for an Axiell Libraries entity in the selected account.",
       "fields": {
         "config_entry_id": {
           "name": "Library account",

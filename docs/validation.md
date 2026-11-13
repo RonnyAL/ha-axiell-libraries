@@ -7,7 +7,69 @@ library/card, persistent DeviceID, initially read-only Solus access, nearby disc
 manual LocationID. No redesign approval was needed. The original six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: explicit individual loan renewal (prepared 0.4.0)
+## Current: account-scoped renewal authorization (unreleased)
+
+The owner requested non-admin household renewal through the existing action.
+The previous `async_register_admin_service` wrapper rejected every non-admin
+before the handler, including users with valid control permission. Its existing
+negative test used a read-only user and did not expose that distinction.
+
+Implemented the [authorization plan](superpowers/plans/2026-11-13-renewal-authorization.md)
+using Superpowers investigation and TDD. Runtime changes are confined to
+`services.py`: normal action registration and a server-side gate requiring
+current `POLICY_CONTROL` on at least one registered Axiell entity belonging to
+the selected config entry. Every user call, including confirmations, rechecks
+identity, active status and permissions before account/consent processing.
+Unknown, inactive and unauthorized callers cannot invoke the coordinator or
+consume a confirmation token. Only a None user ID preserves HA's existing trusted
+internal-call behavior. Core's WebSocket action handler creates that context from
+its authenticated connection user, rather than accepting a caller-supplied ID.
+
+Task commit `87544db` changes the service gate, adds
+`tests/test_service_authorization.py`, updates current English/Norwegian action
+text and user docs, and records the change under Unreleased. Solus transport,
+coordinator, consent manager, schema, OPTIONAL responses, DeviceIDs/sessions,
+manifest version and released notes are untouched.
+
+Meaningful focused RED: **8 failed, 46 passed**, including ordinary/scoped Users
+incorrectly rejected by the admin wrapper and an empty identity bypass. Corrected
+test setup mistakes are separate from that observed regression. Focused GREEN:
+**54 passed, 5 warnings in 1.25s** (35 existing plus 19 new cases). Tests use real
+HA users/groups/PolicyPermissions, registry and service dispatcher, plus real
+coordinator/consent handling with mocked upstream I/O. Coverage includes scoped
+accounts with identical loan IDs, read-only/unknown/inactive denial, owner/admin
+success, renamed/missing/wrong-platform entities, denied token use, revocation
+before confirmation and exact provider acknowledgement for an authorized user.
+
+Verification at `87544db`:
+
+```text
+$ /tmp/axiell-ha202611-venv/bin/pytest -q
+618 passed, 5 warnings in 6.70s
+$ /tmp/axiell-ha2026110-venv/bin/pytest -q
+618 passed, 5 warnings in 6.80s
+$ /tmp/axiell-ha202611-venv/bin/ruff check .
+All checks passed!
+$ /tmp/axiell-ha202611-venv/bin/ruff format --check .
+50 files already formatted
+$ docker run --rm -v /home/ronny/axiell/ha-axiell-libraries:/github/workspace:ro ghcr.io/home-assistant/hassfest:latest
+Integrations: 1
+Invalid integrations: 0
+```
+
+Actual Core and official pytest harness versions are **2026.11.1** (target) and
+**2026.11.0** (minimum), with local Python **3.14.7**. The five warnings remain
+upstream Core/backoff deprecations; no new warning or suppression was introduced.
+
+HA's default Users group grants all-entity control. This action honors the
+existing policy and does not add an account ACL: restricting an account requires
+an actual HA permission policy, not hiding a dashboard/card. Trusted internal
+calls retain Core's context contract; custom frontends must preserve authenticated
+user context. No Origami code or live account operation was changed/executed.
+No new Solus assumption or live protocol claim is introduced by this fix.
+Publication of another release is outside this PR request.
+
+## Previous: explicit individual loan renewal (prepared 0.4.0)
 
 The owner explicitly authorized an individual renewal action extending read-only
 v1. Existing aggregate sensors, structured loan attributes and the to-do entity

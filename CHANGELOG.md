@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Authorize individual renewal using current control permission for an Axiell
+  Libraries entity on the selected account, including confirmation calls. Allow
+  authorized non-admin dashboard users while preserving account and consent
+  isolation. Default HA Users still control all entities; dashboard visibility
+  does not restrict access.
+
 ## 0.4.0
 
 - Add the administrator action `axiell_libraries.renew_loan` for one explicitly
