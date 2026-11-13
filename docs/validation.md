@@ -1,19 +1,89 @@
 # Validation ledger
 
-This records implementation evidence, including anonymous public discovery,
-not a credentialed end-to-end compatibility claim.
+This records automated implementation evidence and separately attributed
+owner-run live checks. Automated tests never use a real library account.
 The approved design was reused: native HA integration, one entry per
 library/card, persistent DeviceID, read-only Solus access, nearby discovery and
-manual LocationID. No redesign approval was needed. All six task briefs came
+manual LocationID. No redesign approval was needed. The original six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: authentication parity and safe setup references
+## Current: individual loan details and semantic releases
 
-The owner reports successful Marketplace installation/update but failing HA
-credentialed setup. Their supplied Python PoC was live-verified through
+The owner now confirms live HA authentication, active-loan count, next due date
+and overdue count, as well as Marketplace installation/update. This supersedes
+the setup-failure status in the historical section below. New loan attributes,
+dashboard browser layout, live cover loading and installation of a published
+semantic release still need an owner-run check. No release or tag was created.
+
+Implemented the [three-task plan](superpowers/plans/2026-11-13-loan-details.md)
+using Superpowers TDD and independent task reviews:
+
+| Task | Changes | Observed RED | Final focused GREEN |
+| --- | --- | --- | --- |
+| 1, `2933c90` | Models, synthetic fixtures, cache regressions, protocol | 57 failed / 79 passed | 143 passed |
+| 2, `3a7ed27` | Sensor attributes, read-only to-do descriptions, UI guide and actual-template tests | 6 entity failures; 6 template failures | 24 passed |
+| 3, `d76b508` | Release guard/workflow, actual Marketplace tests, manifest and release docs | 44 release failures; 1 Marketplace failure | 55 passed |
+
+All final focused runs have the same five known upstream warnings. Task 2 also
+observed a Recorder regression fail without the attribute exclusion and pass
+with it through HA's actual `StateAttributes.shared_attrs_bytes_from_event`.
+The exact documented YAML/Jinja is rendered by HA's Template implementation;
+these tests are not a browser-rendering claim.
+
+Local final implementation checks at `d76b508`:
+
+```text
+$ /tmp/axiell-ha202611-venv/bin/python -m pytest -q
+439 passed, 5 warnings in 4.83s
+$ /tmp/axiell-ha2026110-venv/bin/python -m pytest -q
+439 passed, 5 warnings in 5.07s
+$ /tmp/axiell-ha202611-venv/bin/ruff check .
+All checks passed!
+$ /tmp/axiell-ha202611-venv/bin/ruff format --check .
+39 files already formatted
+$ /tmp/axiell-actionlint/actionlint
+(no output, exit 0)
+$ docker run --rm -v /home/ronny/axiell/ha-axiell-libraries:/github/workspace:ro ghcr.io/home-assistant/hassfest:latest
+Integrations: 1
+Invalid integrations: 0
+```
+
+Actual local Python is **3.14.7**; Core and official `pytest-homeassistant` are
+**2026.11.1** in the target environment and **2026.11.0** in the minimum
+environment. Ruff is **0.17.5**. The minimum remains the lowest version actually
+tested, not an assertion that older releases work. The five warnings are
+upstream Core `web.Application` inheritance and four backoff
+`asyncio.iscoroutinefunction` deprecations; none were suppressed.
+
+The release tests execute the real publication shell with an offline fake `gh`.
+They verify strict tag/manifest agreement, main-only reusable CI, exact validated
+SHA, reviewed nonempty notes, immutable tag creation, and failure before
+publication. Actual installed Marketplace code selects `v0.3.0`, downloads its
+tag archive, extracts/loads manifest `0.3.0`, and compares it with older/equal/
+newer versions and a previous installed commit hash. Repository structure,
+metadata, config flow and minimum-version checks also remain covered.
+
+Decisions and tradeoffs recorded during execution:
+
+- Reuse the existing four entities and expose structured data on Active loans.
+  This avoids entity churn; a future calendar would be an additional feature.
+- Retain only selected original fields internally and expose recognized
+  bibliography labels. A provider using other labels needs a tested alias.
+- Prepare `0.3.0`/`v0.3.0` while preserving the owner's release hold. Marketplace
+  hash labels remain until a real GitHub Release is published and installed.
+
+No new protocol requests or authentication changes were needed. Subject/English
+metadata aliases remain defensive; new provider schemas, unusual routing and
+external image availability are not proven by offline tests. Credentials,
+sessions and persistent DeviceIDs remain entry-local under the existing tests.
+
+## Previous: authentication parity and safe setup references
+
+At the time of this earlier work, the owner reported successful Marketplace
+installation/update but failing HA credentialed setup. Their Python PoC was live-verified through
 bootstrap, LoginPreSession, LoginCheckSession, loans and catalogue, with no
-observed processing-host change. This integration has **not** been verified
-successfully against a live account. The corrected request contract and
+observed processing-host change. Live integration success had not yet been
+confirmed (it is now confirmed above). The corrected request contract and
 remaining model/routing/schema differences are in [protocol.md](protocol.md).
 
 Task 1 (`c0e3b5f`) corrected the request/response contract. Task 2 adds only
