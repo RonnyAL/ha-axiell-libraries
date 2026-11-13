@@ -63,8 +63,6 @@ and `OK`, and clarifies direct-row missing-identity coverage. Both actual
 Core/official harness pairs were verified via installed package metadata:
 2026.11.1 in `/tmp/axiell-ha202611-venv`, 2026.11.0 in
 `/tmp/axiell-ha2026110-venv`, both Python 3.14.7.
-The local formatter count includes the controller's ignored
-`public_lookup_check.py`; there are 28 tracked Python source files.
 
 Exactly five upstream warnings remain unsuppressed in both environments:
 `homeassistant/components/http/server.py:223` inherits aiohttp `web.Application`;
