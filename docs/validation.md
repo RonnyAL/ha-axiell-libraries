@@ -11,8 +11,8 @@ from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 Branch `feat/ha-2026-11-marketplace` targets integration version `0.2.0`, which
 is not published. The repository remains private. All three tasks passed
 independent review. Whole-branch review found one release help-argument bypass;
-the fix has local RED/GREEN evidence below. Scoped fix review and hosted CI for
-the final fix head remain pending controller observation.
+commit `e6060f4` fixed it with RED/GREEN evidence below. Scoped re-review confirmed
+the finding addressed with no new breakage. All code reviews are complete.
 The original v1 evidence below is historical, not the current support statement.
 
 ### Runtime and command evidence
@@ -98,7 +98,7 @@ installation/download, public availability, browser rendering or update polling.
 
 ### CI, release and review handoff
 
-[Draft PR #1](https://github.com/RonnyAL/ha-axiell-libraries/pull/1) was opened by
+[PR #1](https://github.com/RonnyAL/ha-axiell-libraries/pull/1) was opened by
 the controller. Hosted Validate completed successfully for commit `fdaa236` in
 the [push run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43383733854)
 and [PR run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43383785554).
@@ -110,9 +110,11 @@ Core 2026.11.1: `171 passed, 5 warnings in 3.38s`. Official hassfest reports
 `fdaa236`. The documentation head `1d31757` also passed the controller-observed
 [PR run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43384542304)
 and [push run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43384535505).
-These hosted passes predate the final fix; hosted CI for the final fix head and
-scoped fix review remain pending controller observation. The Release
-publishing workflow has not been executed.
+These hosted passes predate the final fix. The latest commit's execution evidence
+is attached to the [PR checks](https://github.com/RonnyAL/ha-axiell-libraries/pull/1/checks);
+the controller requires all jobs to pass before marking the PR ready. Scoped
+fix review confirmed both help arguments are rejected and found no new issue.
+The Release publishing workflow has not been executed.
 
 Whole-branch review found that argparse's default `-h`/`--help` handling returned
 success before validating the dispatch version. `scripts/check_release.py` now
