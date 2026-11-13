@@ -1,0 +1,77 @@
+{
+  "title": "Axiell Libraries",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Velg bibliotek",
+        "description": "Søk i treffene i nærheten, eller skriv inn bibliotekets nøyaktige LocationID manuelt.",
+        "data": {
+          "library": "Bibliotek"
+        }
+      },
+      "library_manual": {
+        "title": "Finn bibliotek",
+        "description": "Skriv inn den nøyaktige Solus LocationID-en fra biblioteket. Dette er ikke et søk etter biblioteknavn.",
+        "data": {
+          "location_id": "LocationID"
+        }
+      },
+      "credentials": {
+        "title": "Bibliotekkonto",
+        "description": "Skriv inn lånekortnummer og PIN. Home Assistant lagrer PIN i konfigurasjonsoppføringen. Hver oppføring gjelder ett bibliotek og ett lånekort.",
+        "data": {
+          "card": "Lånekortnummer",
+          "pin": "PIN"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Oppdater PIN",
+        "description": "Skriv inn ny PIN for bibliotekkontoen. Lagret lånekort og enhetsidentitet beholdes.",
+        "data": {
+          "pin": "PIN"
+        }
+      },
+      "reconfigure": {
+        "title": "Oppdater PIN",
+        "description": "Skriv inn PIN for lånekortet i denne oppføringen. Legg til en ny integrasjonsoppføring for et annet kort eller bibliotek.",
+        "data": {
+          "pin": "PIN"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Biblioteket avviste påloggingen. Kontroller lånekortnummer og PIN.",
+      "cannot_connect": "Kunne ikke kontakte eller tolke svar fra bibliotektjenesten. Prøv igjen senere."
+    },
+    "abort": {
+      "already_configured": "Dette biblioteket og lånekortet er allerede konfigurert.",
+      "reauth_successful": "PIN ble oppdatert.",
+      "reconfigure_successful": "PIN ble oppdatert."
+    }
+  },
+  "selector": {
+    "library": {
+      "options": {
+        "manual": "Skriv inn LocationID manuelt"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "active_loans": {
+        "name": "Aktive lån"
+      },
+      "next_due_date": {
+        "name": "Neste forfallsdato"
+      },
+      "overdue_loans": {
+        "name": "Forfalte lån"
+      }
+    },
+    "todo": {
+      "loans": {
+        "name": "Biblioteklån"
+      }
+    }
+  }
+}

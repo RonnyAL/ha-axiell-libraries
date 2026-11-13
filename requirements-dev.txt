@@ -1,0 +1,4 @@
+# Target runtime: Python 3.14, with matching Core and official test harness.
+-r requirements-test.txt
+homeassistant==2026.11.1
+pytest-homeassistant==2026.11.1

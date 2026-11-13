@@ -60,6 +60,26 @@ Response has outer `d` envelope; `d.status` is `success`, `d.Detail[0].AuthToken
 - `author` may be empty; `subtitle` sometimes contains author. Prefer `RecordGet.Author`.
 - `imageUrl` fields in `LoansGet` may be empty, as may `ISBN`.
 
+### Date parser semantics
+
+The integration reads `dueObject` only and returns an unknown date for missing,
+malformed, or out-of-range values; it never falls back to `dueDisplay` HTML.
+Milliseconds in `/Date(milliseconds)/` represent an instant since the Unix epoch
+in UTC, and the model exposes that instant's UTC calendar date, independent of
+the Home Assistant host timezone. Negative milliseconds are supported.
+
+An optional `+HHMM` or `-HHMM` suffix is accepted only with hours `00`–`23` and
+minutes `00`–`59`. The suffix is validated but not applied to the UTC instant.
+For example, `/Date(1795046400000-1200)/` still yields `2026-11-19`.
+Suffix handling is a defensive parser choice, not a live-verified server variant.
+
+Loan authors use nonempty `author`, then `subtitle`, as a fallback. Catalogue
+enrichment replaces that fallback with a nonempty `RecordGet.Author`, while
+missing catalogue fields leave available loan metadata intact. Direct `ImageUrl`
+is preferred, with `ImageUrlLarge` as fallback. Empty or malformed covers,
+non-HTTPS URLs, embedded credentials, and `ItemImage.aspx` placeholders are
+discarded. `MainMetadata` is retained as optional string key/value metadata.
+
 ## Useful RecordGet fields
 
 - `RecordID`, `Title`, `Author`, `Description`, `ISBN`, `ISBNList`, `Format`, `ImageUrl`, `ImageUrlLarge`, `MainMetadata` (Key/Value array, including publisher and year).
@@ -74,3 +94,158 @@ Response has outer `d` envelope; `d.status` is `success`, `d.Detail[0].AuthToken
 - API schema is not a stable contractual guarantee. Unit tests need to mock network responses.
 
 See `tests/fixtures/` for *synthetic, non-user* JSON samples.
+
+## Client implementation contract and remaining assumptions
+
+`solus.py` exposes `async_lookup_location(session, location_id) -> Library` and
+`async_find_nearby(session, latitude, longitude) -> list[Library]`. `Library` has
+`location_id`, `name`, `app_id`, and a resolved `server_url` processing origin.
+The caller owns an isolated HA-managed `aiohttp.ClientSession` and its cookie
+jar for each flow/account. The transport reuses that session for Auth.aspx and
+API requests, does not modify its default headers, and does not close it.
+`SolusClient(session, app_id, server_url, device_id, locale="nb-NO")` never
+creates a DeviceID. Authentication state remains on the client in memory.
+
+The lookup implementation accepts a locator object, optionally wrapped in `d`
+(or JSON serialized), with `Status: OK`, `LocationID`, `Name`, `AppID`, and
+`ServerUrl`. Nearby uses the same fields in a `Detail` list. These precise
+locator field shapes and nearby behavior need local live validation: the
+checked-in observations do not include a complete locator response fixture.
+Malformed responses fail explicitly. `APIUrl` is never used for credentials.
+Both discovery and each login resolve `GET https://repo.sol.us/id/<AppID>/2026.42`
+and use its `Server`. An optional repo `AuthServer` can specify the bootstrap
+origin; otherwise `Server` is used. That optional field is a defensive assumption,
+not a live-verified repo variant.
+
+All dynamic origins must use HTTPS with a single-label subdomain of `sol.us`,
+a root path, no user information, explicit port, query, fragment, control
+characters, or backslash. HTTP redirects are rejected at every stage. A
+`LoginCheckSession` `ServerToUse` must match the processing origin resolved from
+the trusted HTTPS repo before login; moving tokens to another hostname requires
+additional verified routing evidence. This deliberately fails safely if a
+provider introduces a previously unseen routing arrangement.
+
+Bootstrap metadata retains the observed app identity: version `2026.42`, build
+`2026420500`, package `solus.AllAxiell`. `AppID` and `TemplateID` use the selected
+AppID; `DeviceID` and locale come from the caller; `ServerRoot` is the processing
+origin with trailing slash. Device descriptors are deterministic integration
+values: `PlatType`, `PlatModel`, and `DName` are `Home Assistant`, `PlatVer` is
+`1`, and `font` is `100`. Their exact acceptance and the reuse of bootstrap
+metadata plus `AuthToken` for `LoginCheckSession.Request` require a local live
+probe; the sanitized protocol lists these keys but not their verified values.
+
+`async_login(card, pin)` returns the decoded nonempty user-detail list;
+`async_get_loans(user_id)` returns a decoded list, with `[]` representing an
+explicit successful empty account only. `async_get_record(record_id, source)`
+returns an object or `None` for an explicit empty record. Catalogue transport
+errors propagate so the coordinator can handle individual enrichment failures.
+All calls use a 20-second total timeout, no transport retries, and no automatic
+login retries. HTTP 401/403 during login raises `SolusAuthError`; during an
+authenticated data request it clears the token and raises its subclass
+`SolusSessionExpired`, allowing the coordinator to attempt one recovery login.
+Actual expiry codes inside JSON `d.status` are unverified: unknown unsuccessful
+statuses raise `SolusProtocolError` and never trigger speculative login loops.
+All public errors use static messages and suppress sensitive exception context.
+
+The offline tests mock the HTTP request boundary and verify bootstrap ordering,
+payloads, safe routing, and separate client tokens. They do not verify live
+Solus behavior or actual server cookie issuance; a local owner-run probe with
+credentials outside Git remains necessary.
+
+## Configuration identity and validation
+
+The config flow normalizes card numbers by removing all Unicode whitespace,
+while preserving case and leading zeros. Its stable unique ID is the SHA-256
+hex digest of UTF-8 `AppID:normalized_card`; a duplicate is rejected before
+login. A new user flow calls `secrets.token_hex(8)` once and retains that value
+through selection, manual lookup, and credential retries. Successful entries
+store `location_id`, `library_name`, `app_id`, `server_url`, `card`, `pin`, and
+`device_id`. PIN-only reauthentication and reconfiguration update the PIN while
+keeping every other identity field and the unique ID unchanged.
+
+Discovery and each login validation use separate HA-managed sessions with
+isolated cookie jars. Validation sessions are detached in `finally` blocks,
+leaving the HA connector open; validation tokens and cookies are discarded.
+Nearby selection filters only returned local candidates. Manual exact LocationID
+lookup remains available on empty results, missing coordinates or provider
+failure. Provider errors produce static UI messages without logging exception
+text or account values. The PIN resides in HA config entry storage, which is
+not a dedicated secrets vault.
+
+For login JSON, only explicit `d.status: failure` is treated as credential
+rejection; this is the synthetic negative fixture assumption, not a verified
+upstream auth error code. Missing, malformed or unknown statuses raise
+`SolusProtocolError`, including during authentication, and are shown as provider
+failures instead of requesting a new PIN. HTTP 401/403 remains an explicit
+authentication rejection. Exact upstream negative status codes still require a
+local probe by the owner with credentials outside Git.
+
+## Coordinator refresh and catalogue policy
+
+Each config entry owns an `AxiellCoordinator` and its client/cache. Integration
+setup must create the client using the stored DeviceID and call
+`async_config_entry_first_refresh()`; the coordinator's `_async_setup` performs
+initial login, so setup must not log in separately. Subsequent manual and
+six-hour scheduled refreshes reuse that client and its in-memory session.
+Neither refresh nor authentication recovery constructs a new device identity.
+
+Only explicit `SolusSessionExpired` triggers one recovery login and one complete
+refresh retry. Invalid credentials request reauthentication immediately. Metadata
+requests are settled before recovery starts, and credential rejection takes
+precedence if parallel requests report both rejection and expiry. A second
+expiry requests reauthentication; transport/protocol failures produce a static
+`UpdateFailed`. Failed loan updates retain the previous snapshot and mark the
+coordinator unavailable; an explicit successful `[]` replaces it with zero loans.
+
+At the `LoansGet` boundary, every row must contain nonempty string `loanID` and
+`title` values. Loan IDs must be unique after trimming whitespace, using the
+same normalization as the loan model. Missing, malformed or duplicate identities
+reject the entire response with a static protocol error, preserving the previous
+snapshot and making entities unavailable instead of publishing blank or ambiguous
+to-do items. Missing or malformed `dueObject` and optional catalogue fields remain
+permissive. This is a defensive integration policy verified with synthetic
+responses, not a newly observed upstream guarantee.
+
+Catalogue records are cached by `(record_id, source)` for 24 hours, with an
+entry-local least-recently-used limit of 256 records and at most four concurrent
+`RecordGet` calls. Distinct issued copies share metadata requests while keeping
+their own loan IDs and due dates. Expired cache entries are refreshed on demand;
+failed, empty, or mismatched metadata responses leave available stale metadata
+and the loan intact, without renewing the stale cache timestamp. Records without
+a usable record ID/source skip enrichment. Optional returned `Source`, when
+present, must match the requested source, and `RecordID` must always match.
+
+Catalogue `Format` and string `MainMetadata` values reach the enriched loan.
+Publisher/year values remain in an immutable mapping under the provider's keys
+(`Utgiver` and `Utgitt` in the synthetic Norwegian fixture); no universal localized
+publisher/year key scheme is assumed. These cache, concurrency, retry, and
+optional source-validation policies are implementation choices verified offline,
+not new claims about upstream API behavior. No live account test was performed.
+
+When an authenticated HTTP 401/403 invalidates the client session, later queued
+data requests retain `SolusSessionExpired` without sending another HTTP request.
+That recoverable state survives a transport/protocol failure during recovery
+login, allowing a later poll to try its single recovery attempt. Successful
+login clears expiry; explicit credential rejection clears it to ordinary
+unauthenticated state and requests reauthentication. These distinctions prevent
+queued catalogue requests or temporary recovery outages from masquerading as
+invalid credentials.
+
+## Implementation validation boundary
+
+The implemented integration uses the approved native HA, multiple-entry,
+read-only design. Offline tests now run against HA 2026.11.0 and 2026.11.1
+with Python 3.14.7 locally and 3.14.10 in CI, including real HA flow, entity,
+reload and session lifecycle APIs. They do not establish compatibility beyond
+those versions, live Marketplace installation, browser rendering, a separate HA
+process restart, actual cookie issuance, or a successful live integration login. Earlier
+owner-verified endpoint observations must not be conflated with those checks.
+
+Before relying on live operation, the owner must check the exact locator
+`Status/LocationID/Name/AppID/ServerUrl` shape and nearby `Detail` list, bootstrap
+device descriptors and `LoginCheckSession.Request`, optional repo `AuthServer`,
+JSON auth rejection/expiry codes, and the strict single-label `*.sol.us`
+same-processing-origin routing policy. No live requests were made during
+implementation. Use the [README's HA UI smoke test](../README.md#optional-owner-run-live-smoke-test)
+without exposing credentials or recording HTTP bodies. The
+[validation ledger](validation.md) records task evidence and remaining review.

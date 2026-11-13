@@ -1,0 +1,77 @@
+{
+  "title": "Axiell Libraries",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Choose a library",
+        "description": "Search the nearby results, or enter the library's exact LocationID manually.",
+        "data": {
+          "library": "Library"
+        }
+      },
+      "library_manual": {
+        "title": "Find a library",
+        "description": "Enter the exact Solus LocationID supplied by your library. This is not a library name search.",
+        "data": {
+          "location_id": "LocationID"
+        }
+      },
+      "credentials": {
+        "title": "Library account",
+        "description": "Enter your card number and PIN. Home Assistant stores the PIN in the config entry. One entry represents one library and card.",
+        "data": {
+          "card": "Library card number",
+          "pin": "PIN"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update library PIN",
+        "description": "Enter the new PIN for this library account. The stored card and device identity are retained.",
+        "data": {
+          "pin": "PIN"
+        }
+      },
+      "reconfigure": {
+        "title": "Update library PIN",
+        "description": "Enter the PIN for this entry's library card. Add another integration entry to use a different card or library.",
+        "data": {
+          "pin": "PIN"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The library rejected the credentials. Check your card number and PIN.",
+      "cannot_connect": "Unable to contact or interpret the library provider. Try again later."
+    },
+    "abort": {
+      "already_configured": "This library and card are already configured.",
+      "reauth_successful": "The PIN was updated.",
+      "reconfigure_successful": "The PIN was updated."
+    }
+  },
+  "selector": {
+    "library": {
+      "options": {
+        "manual": "Enter LocationID manually"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "active_loans": {
+        "name": "Active loans"
+      },
+      "next_due_date": {
+        "name": "Next due date"
+      },
+      "overdue_loans": {
+        "name": "Overdue loans"
+      }
+    },
+    "todo": {
+      "loans": {
+        "name": "Library loans"
+      }
+    }
+  }
+}
