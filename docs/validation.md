@@ -6,7 +6,73 @@ library/card, persistent DeviceID, read-only Solus access, nearby discovery and
 manual LocationID. No redesign approval was needed. All six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: Core 2026.11 and Marketplace preparation
+## Current: public locator response correction
+
+The owner's manual LocationID failed before credential entry because discovery
+required uppercase `OK`, a `Name`, and a nearby `Status`/`Detail` wrapper.
+Anonymous public probes on 2026-11-13 instead observed lowercase `ok`, no `Name`,
+and direct nearby rows under `d`, each with its own status. The trusted HTTPS
+repo returned a valid Solus processing origin. Only safe structural facts were
+recorded; no raw response, credentials, DeviceID or account request was used.
+
+Discovery now checks string success statuses case-insensitively and falls back
+to the valid LocationID for missing/blank string names. Direct nearby lists
+validate all row statuses before repo routing; existing wrapper responses still
+work without per-row statuses. Required identity, malformed Name types, HTTPS
+origins, repo routing and authentication parsing retain their checks. The
+integration remains unreleased version `0.2.0`; no migration or new account
+identity is needed.
+
+Changed files: `custom_components/axiell_libraries/solus.py`,
+`tests/test_solus.py`, `tests/test_config_flow.py`, `docs/protocol.md` and this
+ledger. The HTTP-boundary regressions use synthetic values and `tests/http.py`.
+Real HA manual lookup (including a provider-failure retry) and nearby selection
+reach credentials using the real locator parser, retain a single DeviceID and
+perform no login. Existing duplicate-account, lifecycle and auth tests remain.
+
+```text
+$ /tmp/axiell-ha202611-venv/bin/python -m pytest -q tests/test_solus.py tests/test_config_flow.py -k 'observed_locator or locator_rejects_invalid_status or locator_direct_rows' --tb=short
+RED: 16 failed, 32 passed, 72 deselected, 5 warnings in 0.51s
+GREEN: 48 passed, 72 deselected, 5 warnings in 0.33s
+$ /tmp/axiell-ha202611-venv/bin/python -m pytest -q
+224 passed, 5 warnings in 2.72s
+$ /tmp/axiell-ha2026110-venv/bin/python -m pytest -q
+224 passed, 5 warnings in 2.71s
+$ /tmp/axiell-ha202611-venv/bin/ruff check .
+All checks passed!
+$ /tmp/axiell-ha202611-venv/bin/ruff format --check .
+29 files already formatted
+$ git diff --check
+(no output, exit 0)
+```
+
+RED exited 1 for the expected locator exceptions and config-flow step assertions;
+all GREEN and quality commands exited 0. The final suite adds three
+characterization cases confirming authentication still rejects `SUCCESS`, `ok`
+and `OK`, and clarifies direct-row missing-identity coverage. Both actual
+Core/official harness pairs were verified via installed package metadata:
+2026.11.1 in `/tmp/axiell-ha202611-venv`, 2026.11.0 in
+`/tmp/axiell-ha2026110-venv`, both Python 3.14.7.
+
+Exactly five upstream warnings remain unsuppressed in both environments:
+`homeassistant/components/http/server.py:223` inherits aiohttp `web.Application`;
+backoff uses deprecated `asyncio.iscoroutinefunction` at `_decorator.py:201`
+and `_async.py:11`, `:127`, `:128`. No new warnings appeared.
+
+Implementer self-review checked observed and legacy formats, rejected statuses
+before routing, required identity, safe destinations, persistent DeviceID and
+the diff's privacy boundary. Independent review, public typed-result rechecks,
+fix PR and CI are the controller's next steps. No live integration login,
+account/loan request, or provider call was performed by the implementer. The
+credentialed assumptions below and in `protocol.md` remain unverified.
+
+After the owner merges and updates the installed integration to the fix,
+restart Home Assistant and retry manual `Malselv` lookup or nearby selection.
+Because `0.2.0` is unreleased and unchanged, ensure the installed source includes
+the fix rather than relying on a version bump. Existing entry identities and
+stored DeviceIDs need no replacement. Enter credentials only in Home Assistant.
+
+## Previous: Core 2026.11 and Marketplace preparation
 
 Branch `feat/ha-2026-11-marketplace` targets integration version `0.2.0`, which
 is not published. The repository remains private. All three tasks passed
@@ -318,9 +384,9 @@ binaries/captures. Final documentation is text and contains no owner credentials
 
 ## Unverified behavior and handoff
 
-- Nearby/locator responses: exact object keys
-  `Status/LocationID/Name/AppID/ServerUrl`, optional `d`/serialized envelope, and
-  nearby `Detail` list need live validation. Search only filters returned choices.
+- Public locator discovery/routing is now observed as recorded in the current
+  correction above. Serialized envelopes remain a defensive allowance; the
+  legacy nearby `Detail` wrapper is tested offline. Search only filters returned choices.
 - Bootstrap descriptors (`Home Assistant`, platform version `1`, font `100`),
   the metadata/AuthToken LoginCheckSession request and optional repo `AuthServer`
   need confirmation. The observed app version/build/package are retained.

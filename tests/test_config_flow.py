@@ -15,6 +15,7 @@ from custom_components.axiell_libraries.solus import (
     SolusAuthError,
     SolusConnectionError,
 )
+from tests.http import AiohttpResponses as aioresponses
 
 LIBRARY = Library(
     "Test", "Synthetic Library", "TEST-APP", "https://process-test.sol.us"
@@ -74,6 +75,68 @@ async def credentials(hass, result):
     return await hass.config_entries.flow.async_configure(
         result["flow_id"], {"library": "Test"}
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("discovery", ["manual", "nearby"])
+async def test_observed_locator_reaches_credentials_with_one_device(hass, discovery):
+    """Real discovery parsing must allow setup without Name or uppercase Status."""
+    row = {
+        "Status": "ok",
+        "LocationID": "Test",
+        "AppID": "TEST-APP",
+        "ServerUrl": "https://m.sol.us/",
+        "APIUrl": "https://unused.example/",
+    }
+    with (
+        aioresponses() as mock,
+        patch("secrets.token_hex", return_value=DEVICE) as token_hex,
+        patch(
+            "custom_components.axiell_libraries.solus.SolusClient.async_login"
+        ) as login,
+    ):
+        mock.get(
+            "https://repo.sol.us/id/TEST-APP/2026.42",
+            payload={"Server": "https://process-test.sol.us/"},
+        )
+        if discovery == "manual":
+            hass.config.latitude = hass.config.longitude = None
+            lookup = re.compile(
+                r"https://locator.sol.us/v4/Locator.asmx/QueryWithID\?rnd=.+"
+            )
+            mock.post(lookup, payload={"d": {"Status": "failure"}})
+            mock.post(lookup, payload={"d": row})
+            result = await start(hass)
+            assert result["step_id"] == "library_manual"
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"location_id": "Test"}
+            )
+            assert result["errors"] == {"base": "cannot_connect"}
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"location_id": "Test"}
+            )
+        else:
+            mock.post(
+                re.compile(
+                    r"https://locator.sol.us/v4/Locator.asmx/FindWithLocation\?rnd=.+"
+                ),
+                payload={"d": [row]},
+            )
+            result = await start(hass)
+            assert result["step_id"] == "user"
+            selector = next(iter(result["data_schema"].schema.values()))
+            assert selector.config["options"][0] == {"value": "Test", "label": "Test"}
+            result = await credentials(hass, result)
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "credentials"
+        flow = hass.config_entries.flow._progress[result["flow_id"]]
+        assert flow._library == Library(
+            "Test", "Test", "TEST-APP", "https://process-test.sol.us"
+        )
+        assert flow._device_id == DEVICE
+        token_hex.assert_called_once_with(8)
+        login.assert_not_called()
+        assert all("Cat.asmx" not in str(key[1]) for key in mock.requests)
 
 
 @pytest.mark.asyncio

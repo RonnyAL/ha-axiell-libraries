@@ -64,6 +64,145 @@ def client(session):
     return SolusClient(session, APP, SERVER, DEVICE, "nb-NO")
 
 
+def locator_endpoint(method):
+    return re.compile(rf"https://locator.sol.us/v4/Locator.asmx/{method}\?rnd=.+")
+
+
+def locator_library(**changes):
+    """Synthetic observed-shaped row, deliberately without an optional Name."""
+    return {
+        "Status": "ok",
+        "LocationID": "Test",
+        "AppID": APP,
+        "ServerUrl": "https://m.sol.us/",
+        "APIUrl": "https://unused.example/",
+        **changes,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["ok", "OK", "Ok"])
+@pytest.mark.parametrize("name", [{}, {"Name": ""}, {"Name": " \t"}])
+async def test_observed_locator_lookup_uses_location_as_missing_name(status, name):
+    """Rejecting lowercase success or requiring Name blocks manual setup."""
+    with aioresponses() as mock:
+        mock.post(
+            locator_endpoint("QueryWithID"),
+            payload={"d": locator_library(Status=status, **name)},
+        )
+        mock.get("https://repo.sol.us/id/TEST-APP/2026.42", payload={"Server": SERVER})
+        async with aiohttp.ClientSession() as session:
+            result = await async_lookup_location(session, "Test")
+        assert (result.location_id, result.name, result.app_id, result.server_url) == (
+            "Test",
+            "Test",
+            APP,
+            SERVER,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapped", [False, True])
+async def test_observed_locator_nearby_accepts_direct_rows(wrapped):
+    """Direct arrays carry success on each row, not a Status/Detail wrapper."""
+    rows = [
+        locator_library(),
+        locator_library(LocationID="Other", Name="Named Library"),
+    ]
+    with aioresponses() as mock:
+        mock.post(
+            locator_endpoint("FindWithLocation"),
+            payload={"d": rows} if wrapped else rows,
+        )
+        mock.get(
+            "https://repo.sol.us/id/TEST-APP/2026.42",
+            payload={"Server": SERVER},
+            repeat=True,
+        )
+        async with aiohttp.ClientSession() as session:
+            result = await async_find_nearby(session, 69.0, 19.0)
+        assert [(item.location_id, item.name, item.server_url) for item in result] == [
+            ("Test", "Test", SERVER),
+            ("Other", "Named Library", SERVER),
+        ]
+
+
+@pytest.mark.asyncio
+async def test_observed_locator_empty_nearby_list_is_no_candidates():
+    with aioresponses() as mock:
+        mock.post(locator_endpoint("FindWithLocation"), payload={"d": []})
+        async with aiohttp.ClientSession() as session:
+            assert await async_find_nearby(session, 69.0, 19.0) == []
+        assert len(mock.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [None, "failure", "success", "", 1, True, [], {}])
+@pytest.mark.parametrize("shape", ["lookup", "nearby_direct", "nearby_wrapper"])
+async def test_locator_rejects_invalid_status_before_routing(status, shape):
+    """A later bad row must not trigger even an earlier row's repo resolution."""
+    row = locator_library(Status=status)
+    if shape == "lookup":
+        method, response = "QueryWithID", row
+    elif shape == "nearby_direct":
+        method, response = "FindWithLocation", [locator_library(), row]
+    else:
+        method, response = "FindWithLocation", {"Status": status, "Detail": []}
+    with aioresponses() as mock:
+        mock.post(locator_endpoint(method), payload={"d": response})
+        async with aiohttp.ClientSession() as session:
+            with pytest.raises(SolusProtocolError):
+                if shape == "lookup":
+                    await async_lookup_location(session, "Test")
+                else:
+                    await async_find_nearby(session, 69.0, 19.0)
+        assert len(mock.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "row",
+    [
+        None,
+        {},
+        {"LocationID": "Test", "AppID": APP, "ServerUrl": SERVER},
+        {"Status": "ok"},
+    ],
+)
+async def test_locator_direct_rows_require_status_and_identity(row):
+    with aioresponses() as mock:
+        mock.post(locator_endpoint("FindWithLocation"), payload={"d": [row]})
+        async with aiohttp.ClientSession() as session:
+            with pytest.raises(SolusProtocolError):
+                await async_find_nearby(session, 69.0, 19.0)
+        assert len(mock.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes,error",
+    [
+        ({"LocationID": ""}, SolusProtocolError),
+        ({"AppID": None}, SolusProtocolError),
+        ({"Name": 123}, SolusProtocolError),
+        ({"Name": None}, SolusProtocolError),
+        ({"ServerUrl": "http://m.sol.us/"}, SolusSecurityError),
+        ({"ServerUrl": "https://untrusted.example/"}, SolusSecurityError),
+    ],
+)
+async def test_observed_locator_keeps_required_identity_and_safe_origins(
+    changes, error
+):
+    with aioresponses() as mock:
+        mock.post(
+            locator_endpoint("QueryWithID"), payload={"d": locator_library(**changes)}
+        )
+        async with aiohttp.ClientSession() as session:
+            with pytest.raises(error):
+                await async_lookup_location(session, "Test")
+        assert len(mock.requests) == 1
+
+
 @pytest.mark.asyncio
 async def test_lookup_resolves_repo_processing_server():
     """Sending credentials to locator APIUrl instead of repo Server breaks routing."""
@@ -595,7 +734,9 @@ async def test_clients_do_not_share_tokens_or_change_session_defaults():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [None, "TEST_UNKNOWN_STATUS", 123])
+@pytest.mark.parametrize(
+    "status", [None, "TEST_UNKNOWN_STATUS", 123, "SUCCESS", "ok", "OK"]
+)
 async def test_malformed_auth_status_is_protocol_failure(status):
     """A provider/schema outage must not be reported as a rejected PIN."""
     with aioresponses() as mock:
