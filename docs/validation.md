@@ -1,4 +1,4 @@
-# v1 validation ledger
+# Validation ledger
 
 This records offline implementation evidence, not a live compatibility claim.
 The approved design was reused: native HA integration, one entry per
@@ -6,7 +6,127 @@ library/card, persistent DeviceID, read-only Solus access, nearby discovery and
 manual LocationID. No redesign approval was needed. All six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Environment and implementation choices
+## Current: Core 2026.11 and Marketplace preparation
+
+Branch `feat/ha-2026-11-marketplace` targets integration version `0.2.0`, which
+is not published. The repository remains private. Tasks 1 and 2 passed independent
+review; Task 3 documentation and the final whole-branch review are next gates.
+The original v1 evidence below is historical, not the current support statement.
+
+### Runtime and command evidence
+
+Final Task 2 complete suites used actual installed Core and the matching official
+`pytest-homeassistant`, not a Core dependency override. Both environments used
+Python **3.14.7**, aiohttp **3.14.5**, aioresponses **0.7.9**, pytest **9.0.3**,
+aiogithubapi **26.0.0** and Ruff **0.17.5**.
+
+| Environment | Core / official harness | Command | Recorded result |
+| --- | --- | --- | --- |
+| `/tmp/axiell-ha202611-venv` | 2026.11.1 / 2026.11.1 | `bin/python -m pytest -q` | `171 passed, 5 warnings in 2.33s` |
+| `/tmp/axiell-ha2026110-venv` | 2026.11.0 / 2026.11.0 | `bin/python -m pytest -q` | `171 passed, 5 warnings in 2.23s` |
+
+Commands above append `bin/...` to the environment path. Other final commands:
+
+```text
+/tmp/axiell-ha202611-venv/bin/ruff check .
+All checks passed!
+/tmp/axiell-ha202611-venv/bin/ruff format --check .
+28 files already formatted
+/tmp/axiell-actionlint/actionlint -color
+(no output, exit 0)
+/tmp/axiell-ha202611-venv/bin/python scripts/check_release.py 0.2.0
+Release tag and manifest agree: 0.2.0
+git diff --check
+(no output, exit 0)
+```
+
+Actionlint was 1.7.11 (Go 1.25.7, linux/amd64). After updating workflow actions to
+`actions/checkout@v7.0.1` and `actions/setup-python@v7.1.0` (official Node 24
+releases) in `fdaa236`, actionlint and diff checks again exited 0.
+
+Official container validation:
+
+```text
+docker run --rm -v /home/ronny/axiell/ha-axiell-libraries:/github/workspace:ro ghcr.io/home-assistant/hassfest:latest
+Integrations: 1
+Invalid integrations: 0
+(exit 0)
+```
+
+Image identity:
+`ghcr.io/home-assistant/hassfest@sha256:da6522993280166fe072704989a2b4c33e639e8ceb69c8ab6ad7ec5045c1a1e3`.
+Before fixes hassfest rejected manifest ordering and the `__manual__` translation
+key; the valid `manual` key now agrees across flow, strings and translations.
+This supersedes the historical statement below that hassfest was unavailable.
+
+### Coverage and migration boundary
+
+The complete suites retain auth/HTTPS/error sanitization, discovery/manual
+fallback, duplicate-before-login, independent multiple accounts, persistent
+DeviceID and reauth/reconfigure, malformed dates, explicit empty loans, session
+expiry/recovery, partial catalogue failure, sensors and read-only to-do coverage.
+A strengthened existing-entry lifecycle regression forbids generating a new
+DeviceID and verifies original entry data, schema and login IDs through setup,
+reload, unload and setup. A deliberate regeneration mutation failed the test.
+No separate process restart or live account was tested.
+
+The discontinued custom-component harness was replaced by the matching official
+Core harness. Both requirements files share test tools; the official bootstrap
+setting `-p no:respx` is in pyproject.toml. Existing APIs needed no production
+behavior changes. The narrow `tests/http.py` response-class adapter supplies the
+constructor writer argument missing in aioresponses 0.7.9 for aiohttp 3.14.5;
+it retains real ClientResponse behavior without patching Core/aiohttp.
+
+Exactly five upstream warnings remain visible: Core's HomeAssistantApplication
+subclasses aiohttp web.Application, and four backoff 2.2.1 sites use deprecated
+asyncio.iscoroutinefunction. No warning filters were added.
+
+Offline Marketplace tests use the actual installed Core repository metadata,
+content resolution, source archive extraction, manifest loading, domain-collision
+and minimum-version validators. An isolated subprocess imports config flow,
+sensors and to-do from the extracted integration with no checkout on its path.
+Only the small Marketplace manager context is synthetic. This proves local
+metadata/structure and importability; it does not prove GitHub access, live
+installation/download, public availability, browser rendering or update polling.
+
+### CI, release and review handoff
+
+[Draft PR #1](https://github.com/RonnyAL/ha-axiell-libraries/pull/1) was opened by
+the controller. Hosted Validate completed successfully for commit `fdaa236` in
+the [push run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43383733854)
+and [PR run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43383785554).
+The PR log prints Python **3.14.10**, distinct from local **3.14.7**, and asserts
+exact Core/harness pairs. Core 2026.11.0: `171 passed, 5 warnings in 4.09s`;
+Core 2026.11.1: `171 passed, 5 warnings in 3.38s`. Official hassfest reports
+`Invalid integrations: 0`; Ruff reports `All checks passed!` and
+`28 files already formatted`. This evidence applies to `fdaa236`; the controller
+will check the final documentation head after task review. The Release
+publishing workflow has not been executed.
+
+Validate runs official hassfest, Ruff and the full exact-pair runtime matrix on
+push/PR and as a reusable workflow, using read-only contents access. Release
+accepts a plain manifest version only from main, reruns all validation, checks
+exact manifest/tag agreement, atomically creates a new tag at the validated SHA,
+then publishes a GitHub source release. Existing tags are rejected; only the
+publishing job has contents-write permission. No attached ZIP or catalog
+submission is needed. Publication failure after tag creation requires manual
+investigation/recovery, not a blind rerun or automatic tag movement.
+
+Public Add from link requires merge, the owner's separate visibility decision
+and a published release. No visibility change, merge, tag or release publication
+was performed in these tasks. The owner still needs to check Marketplace
+install/download/update with GitHub connected, restart after updating loaded
+code, browser rendering, actual HA process restart and the complete credentialed
+Solus flow. Credentials belong only in the owner's HA UI. The live-protocol
+assumptions listed below remain unchanged.
+
+## Historical v1: Core 2026.2.3
+
+The remaining implementation evidence records the earlier Python 3.13 / Core
+2026.2.3 work. Its tool availability, dependencies and no-push statement apply
+to that earlier stage, before the 2026.11 migration and draft PR above.
+
+### Historical environment and implementation choices
 
 Development used local branch `feat/axiell-libraries-v1`. The managed worktree
 was not writable in the sandbox, so work continued in the original writable
@@ -15,7 +135,8 @@ merge, publication or repository visibility command was performed.
 
 Full HA tests used Python **3.13.15**, HA **2026.2.3**,
 `pytest-homeassistant-custom-component` **0.13.316**, pytest **9.0.0**,
-aioresponses **0.7.9** and Ruff **0.17.5**, pinned in `requirements-dev.txt`.
+aioresponses **0.7.9** and Ruff **0.17.5**, then pinned in
+`requirements-dev.txt` (since replaced by the current pins).
 The local test interpreter is `/tmp/axiell-ha-venv/bin/python`; this path is
 an ephemeral development environment, not an installation requirement. A local
 compiler workaround was needed to build pinned `lru-dict`; no compiler or
@@ -146,9 +267,9 @@ code or translations changed. The probe is local, outside the product suite.
 This validates backend loading; it does not validate browser rendering or prove
 that Norwegian dropdown labels render correctly.
 
-`hassfest` is **unavailable**: its source-tree tooling is not shipped in the
-installed Home Assistant distribution. It was not run and is not claimed to
-have passed. The available runtime checks are narrower than hassfest's full
+At this historical stage, `hassfest` was **unavailable**: its source-tree
+tooling was not shipped in the installed Home Assistant distribution. It was
+not run then; the current successful container run is recorded above. The available runtime checks are narrower than hassfest's full
 manifest/strings validation.
 
 Privacy inspection used `git ls-files`, tracked-file byte/suffix inspection,
@@ -178,8 +299,9 @@ binaries/captures. Final documentation is text and contains no owner credentials
   credentials, explicit port, query or fragment. Redirects are blocked.
   `ServerToUse` must equal the trusted repo's resolved processing origin. This
   may reject an otherwise valid new provider route until independently verified.
-- No latest-HA compatibility, browser testing, actual process restart, or live
-  complete-integration success is claimed. Reload/reauth identity is tested
+- Current compatibility is verified only for Core 2026.11.0 and 2026.11.1.
+  Browser testing, actual process restart, Marketplace install/update and live
+  complete-integration success are unverified. Reload/reauth identity is tested
   offline. The earlier owner's protocol probe is separate evidence.
 
 Next: the owner may optionally use the

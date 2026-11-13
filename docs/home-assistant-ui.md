@@ -45,8 +45,15 @@ See the [installation and local smoke-test guide](../README.md) before setup.
 Nearby search filters returned choices only, with exact manual LocationID as
 fallback. This integration provides no custom dashboard card or calendar entity.
 
-This UI behavior is verified with offline tests against Home Assistant 2026.2.3.
+This UI behavior is verified with offline tests against Home Assistant 2026.11.0
+and 2026.11.1 on Python 3.14.7 locally and 3.14.10 in CI.
 It does not establish compatibility with a live Solus account; the owner must
 perform a local credentialed check outside Git before making that claim.
 Browser rendering, Norwegian selector labels and a separate HA process restart
 have not been tested; reload lifecycle behavior is covered by offline tests.
+
+Marketplace Add from link installation and update polling remain untested live.
+The [README](../README.md#install-through-marketplace) records private-repository
+and release prerequisites. Once available, use Settings → Marketplace → Add
+from link with `https://github.com/RonnyAL/ha-axiell-libraries`; connect GitHub
+for update checks and restart HA after updating a loaded integration.

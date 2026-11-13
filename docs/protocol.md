@@ -234,10 +234,11 @@ invalid credentials.
 ## Implementation validation boundary
 
 The implemented integration uses the approved native HA, multiple-entry,
-read-only design. Offline tests run against HA 2026.2.3 / Python 3.13, including
-real HA flow, entity, reload and session lifecycle APIs. They do not establish
-latest-version compatibility, browser rendering, a separate HA process restart,
-actual cookie issuance, or a successful live integration login. Earlier
+read-only design. Offline tests now run against HA 2026.11.0 and 2026.11.1
+with Python 3.14.7 locally and 3.14.10 in CI, including real HA flow, entity,
+reload and session lifecycle APIs. They do not establish compatibility beyond
+those versions, live Marketplace installation, browser rendering, a separate HA
+process restart, actual cookie issuance, or a successful live integration login. Earlier
 owner-verified endpoint observations must not be conflated with those checks.
 
 Before relying on live operation, the owner must check the exact locator

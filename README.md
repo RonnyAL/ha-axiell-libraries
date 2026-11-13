@@ -4,29 +4,45 @@ A native, read-only custom integration for loans at Solus-powered libraries,
 including libraries using the Axiell Libraries App. Each library/card pair has
 its own Home Assistant config entry, persistent DeviceID, session and entities.
 
-This uses an **unofficial, reverse-engineered API**. The implementation has been
-tested offline with Home Assistant **2026.2.3 and Python 3.13**; compatibility
-with newer HA releases and a live account has not been established. The owner's
+This uses an **unofficial, reverse-engineered API**. The complete offline suite
+passes on Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
+Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.2.0** is
+prepared but unpublished.
+A live account and Marketplace installation have not been tested. The owner's
 earlier protocol probe verified authentication and loan/catalogue endpoints,
 not this complete integration. See [validation evidence](docs/validation.md).
 
-## Install from this private repository
+## Install through Marketplace
 
-1. Obtain source from your authorized private checkout or a private archive.
-   Keep the repository private. No HACS or automatic update process is provided.
-2. Copy the entire `custom_components/axiell_libraries` directory into your Home
-   Assistant configuration directory, creating `custom_components` if needed.
-   The resulting path must be
-   `<HA config>/custom_components/axiell_libraries/manifest.json`. For HA OS this
-   is normally `/config/custom_components/axiell_libraries/manifest.json`.
-   Include `translations`; copy the integration directory rather than the whole
-   repository. No YAML credentials or separate service is needed.
-3. Restart Home Assistant, then open **Settings → Devices & services → Add
-   integration** and choose **Axiell Libraries**. If it is absent, check directory
-   nesting and restart completion; a browser reload may also help.
-4. For updates, back up your HA configuration, replace that integration directory
-   from the reviewed private source, and restart HA. Test version compatibility
-   locally before relying on an update.
+The repository is currently **private**. Public Add from link installation is
+pending merge, the owner's separate decision to make the reviewed repository
+public, and publication of release `0.2.0`. This work does not change visibility
+or publish a release. The following is the intended installation procedure once
+those prerequisites are satisfied; it has not been exercised live.
+
+1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
+   **Settings → Marketplace → Add from link** and enter
+   `https://github.com/RonnyAL/ha-axiell-libraries`.
+2. Install Axiell Libraries and restart Home Assistant when prompted.
+3. Open **Settings → Devices & services → Add integration** and choose
+   **Axiell Libraries**, then follow [Add library accounts](#add-library-accounts).
+   Enter card/PIN only in Home Assistant; no YAML credentials or extra service
+   is needed.
+4. Connect GitHub in Marketplace for periodic update checks. Back up HA before
+   updating; an update to a loaded integration requires a Home Assistant restart
+   to load the new code.
+
+### Manual installation from the private checkout
+
+Until public distribution is available, obtain the reviewed source from your
+authorized private checkout or archive. Copy the entire
+`custom_components/axiell_libraries` directory, including `translations`, into
+HA's configuration directory. The resulting path must be
+`<HA config>/custom_components/axiell_libraries/manifest.json` (normally
+`/config/custom_components/axiell_libraries/manifest.json` on HA OS).
+Restart HA, then add the integration under **Settings → Devices & services**.
+For manual updates, back up HA, replace that integration directory with reviewed
+source and restart. Manual copies do not establish Marketplace update behavior.
 
 ## Add library accounts
 
@@ -119,19 +135,69 @@ network bodies or enable credential-bearing debug logging.
 
 Record only the HA/integration version and pass/fail of each step locally,
 without titles or account data. Browser rendering, an actual HA process restart,
-newer HA releases, and the complete live flow were **not run by the implementers**.
+Marketplace install/update, and the complete live flow were **not run by the
+implementers**.
 
-## Development references
+## Development and validation
 
-All automated tests are offline with synthetic data. Install the pinned
-`requirements-dev.txt` in a Python 3.13 virtual environment, then run
-`python -m pytest -q`, `ruff check .`, `ruff format --check .` and
-`git diff --check`. The full HA source-tree `hassfest` tool is not supplied by the
-installed HA package; available loader/translation checks are recorded in the
-[validation ledger](docs/validation.md), without claiming hassfest passed.
+Use Python **3.14** and a clean environment for each Core version. The official
+`pytest-homeassistant` now replaces the discontinued
+`pytest-homeassistant-custom-component`; never install both or override Core
+dependencies to force compatibility. Shared tools are in
+`requirements-test.txt`, included by both runtime requirements files. Pytest's
+`-p no:respx` bootstrap setting is already in `pyproject.toml`.
+
+From the repository root:
+
+```bash
+python3.14 -m venv /tmp/axiell-dev-2026111
+/tmp/axiell-dev-2026111/bin/python -m pip install -r requirements-dev.txt
+/tmp/axiell-dev-2026111/bin/python -m pytest -q
+/tmp/axiell-dev-2026111/bin/ruff check .
+/tmp/axiell-dev-2026111/bin/ruff format --check .
+python3.14 -m venv /tmp/axiell-dev-2026110
+/tmp/axiell-dev-2026110/bin/python -m pip install -r requirements-min.txt
+/tmp/axiell-dev-2026110/bin/python -m pytest -q
+
+docker run --rm -v "$PWD:/github/workspace:ro" ghcr.io/home-assistant/hassfest:latest
+actionlint
+/tmp/axiell-dev-2026111/bin/python scripts/check_release.py 0.2.0
+git diff --check
+```
+
+Docker and actionlint are separate prerequisites. The validation ledger records
+the exact hassfest image digest and installed tool/runtime versions used locally.
+All automated API tests use synthetic data and offline network guards. The small
+`tests/http.py` adapter accommodates aioresponses 0.7.9's missing aiohttp 3.14.5
+constructor argument without patching Core/aiohttp; remove it when upstream
+supports that interface. Five upstream deprecation warnings remain visible.
+
+Push and pull-request **Validate** CI runs official hassfest, Ruff lint/format,
+and the complete suite on Python 3.14 with exact Core/official-harness pairs
+`2026.11.0` and `2026.11.1`. It prints and asserts actual runtime versions.
+CI needs no account credentials. See the [validation ledger](docs/validation.md)
+for local and hosted evidence and the remaining owner-run checks.
+
+## Maintainer releases
+
+After review and merge to `main`, a maintainer may run **Actions → Release →
+Run workflow**, selecting `main` and version `0.2.0` (plain `X.Y.Z`, no `v`).
+The workflow runs the full reusable validation first, checks exact manifest/tag
+agreement, atomically creates a new tag at the validated dispatch commit, then
+publishes a GitHub source release with generated notes. No attached ZIP is
+required. Feature-branch dispatches cannot publish, and existing tags are
+rejected rather than moved.
+
+For later versions, update the integration manifest in a reviewed change and
+supply that exact version to Release after merging. If publishing fails after
+tag creation, investigate the run and repository state and recover manually;
+do not blindly rerun the workflow or move/delete a tag. Publication and any
+visibility change are separate owner actions; neither has been performed here.
+This prepares direct installation, not official Marketplace catalog inclusion.
 
 - [Sanitized protocol and unresolved assumptions](docs/protocol.md)
 - [Synthetic fixtures](tests/fixtures/)
 - [Approved design](docs/superpowers/specs/2026-11-13-axiell-libraries-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-11-13-axiell-libraries-v1.md)
+- [Original implementation plan](docs/superpowers/plans/2026-11-13-axiell-libraries-v1.md)
+- [2026.11 and Marketplace plan](docs/superpowers/plans/2026-11-13-ha-2026-11-marketplace.md)
 - [Maintainer handoff prompt](CODEX_START.md)
