@@ -221,3 +221,21 @@ login clears expiry; explicit credential rejection clears it to ordinary
 unauthenticated state and requests reauthentication. These distinctions prevent
 queued catalogue requests or temporary recovery outages from masquerading as
 invalid credentials.
+
+## Implementation validation boundary
+
+The implemented integration uses the approved native HA, multiple-entry,
+read-only design. Offline tests run against HA 2026.2.3 / Python 3.13, including
+real HA flow, entity, reload and session lifecycle APIs. They do not establish
+latest-version compatibility, browser rendering, a separate HA process restart,
+actual cookie issuance, or a successful live integration login. Earlier
+owner-verified endpoint observations must not be conflated with those checks.
+
+Before relying on live operation, the owner must check the exact locator
+`Status/LocationID/Name/AppID/ServerUrl` shape and nearby `Detail` list, bootstrap
+device descriptors and `LoginCheckSession.Request`, optional repo `AuthServer`,
+JSON auth rejection/expiry codes, and the strict single-label `*.sol.us`
+same-processing-origin routing policy. No live requests were made during
+implementation. Use the [README's HA UI smoke test](../README.md#optional-owner-run-live-smoke-test)
+without exposing credentials or recording HTTP bodies. The
+[validation ledger](validation.md) records task evidence and remaining review.

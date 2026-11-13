@@ -35,6 +35,18 @@ failure requests reauthentication. Updating the PIN and reloading preserve the
 entry's stored DeviceID, entity IDs and account identity. Unloading one account
 releases its session independently of the other accounts.
 
+Catalogue metadata is cached for 24 hours per entry. Use the entry's
+**Reconfigure** action for a proactive PIN update, or the reauthentication
+prompt when HA requests it. Both accept only a PIN; changing the card/library
+requires another entry. The card and PIN are held in HA config entry data,
+which is not a dedicated secrets vault. Protect configuration access and backups.
+
+See the [installation and local smoke-test guide](../README.md) before setup.
+Nearby search filters returned choices only, with exact manual LocationID as
+fallback. This integration provides no custom dashboard card or calendar entity.
+
 This UI behavior is verified with offline tests against Home Assistant 2026.2.3.
 It does not establish compatibility with a live Solus account; the owner must
 perform a local credentialed check outside Git before making that claim.
+Browser rendering, Norwegian selector labels and a separate HA process restart
+have not been tested; reload lifecycle behavior is covered by offline tests.
