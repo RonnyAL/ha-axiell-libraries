@@ -52,7 +52,7 @@
   "selector": {
     "library": {
       "options": {
-        "__manual__": "Enter LocationID manually"
+        "manual": "Enter LocationID manually"
       }
     }
   },

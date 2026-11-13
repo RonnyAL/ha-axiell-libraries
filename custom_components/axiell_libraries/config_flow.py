@@ -21,7 +21,7 @@ from homeassistant.helpers.selector import (
 from . import solus
 from .const import DOMAIN
 
-_MANUAL = "__manual__"
+_MANUAL = "manual"
 _PIN = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 _PIN_SCHEMA = vol.Schema({vol.Required("pin"): _PIN})
 

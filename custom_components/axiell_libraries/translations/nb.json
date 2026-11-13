@@ -52,7 +52,7 @@
   "selector": {
     "library": {
       "options": {
-        "__manual__": "Skriv inn LocationID manuelt"
+        "manual": "Skriv inn LocationID manuelt"
       }
     }
   },

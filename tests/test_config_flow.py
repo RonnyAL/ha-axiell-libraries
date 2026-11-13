@@ -194,7 +194,7 @@ async def test_manual_location_remains_available_when_nearby_is_unusable(
             selector = next(iter(result["data_schema"].schema.values()))
             assert selector.config["custom_value"] is False
             result = await hass.config_entries.flow.async_configure(
-                result["flow_id"], {"library": "__manual__"}
+                result["flow_id"], {"library": "manual"}
             )
         assert result["step_id"] == "library_manual"
         api[1].side_effect = [SolusConnectionError("TEST_PROVIDER_FAILURE"), LIBRARY]

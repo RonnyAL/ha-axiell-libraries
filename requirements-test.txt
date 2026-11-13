@@ -2,4 +2,6 @@
 pytest==9.0.3
 pytest-timeout==2.4.0
 aioresponses==0.7.9
+# Core Marketplace's own dependency, for its offline packaging validators.
+aiogithubapi==26.0.0
 ruff==0.17.5
