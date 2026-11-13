@@ -62,3 +62,15 @@ lookup and nearby path without credentials, reports only safe typed-result facts
 opens a fix PR and monitors pytest/Ruff/official hassfest CI. Do not claim live
 login/loans verified. Final report explains root cause and how to install/retry the
 fix after owner merge/update; no need to replace account identity or ask for PIN.
+
+## Verified task outcome
+
+Task 1 implemented in `7957753`, with public discovery evidence in `7eb3849`.
+Both independent task and whole-branch reviews completed without code findings.
+Full offline tests: 224 passed on each actual Core/harness 2026.11.0 and 2026.11.1;
+five existing upstream warnings remain. Ruff lint/format passed. The corrected
+client also resolved public Malselv lookup and its trusted HTTPS processing route
+without credentials or login. See `docs/validation.md` for outputs and boundaries.
+[PR #2](https://github.com/RonnyAL/ha-axiell-libraries/pull/2) carries the fix;
+its checks record the latest hosted pytest/Ruff/official hassfest results.
+Next owner step: merge/update the source, restart HA, and retry the LocationID.

@@ -1,6 +1,7 @@
 # Validation ledger
 
-This records offline implementation evidence, not a live compatibility claim.
+This records implementation evidence, including anonymous public discovery,
+not a credentialed end-to-end compatibility claim.
 The approved design was reused: native HA integration, one entry per
 library/card, persistent DeviceID, read-only Solus access, nearby discovery and
 manual LocationID. No redesign approval was needed. All six task briefs came
@@ -72,8 +73,11 @@ and `_async.py:11`, `:127`, `:128`. No new warnings appeared.
 
 Implementer self-review checked observed and legacy formats, rejected statuses
 before routing, required identity, safe destinations, persistent DeviceID and
-the diff's privacy boundary. Independent review, fix PR and CI are the
-controller's next steps. No live integration login,
+the diff's privacy boundary. Independent task and whole-branch reviews found no
+code findings. The fix is in [PR #2](https://github.com/RonnyAL/ha-axiell-libraries/pull/2);
+the latest commit's hosted validation is attached to its
+[checks](https://github.com/RonnyAL/ha-axiell-libraries/pull/2/checks).
+No live integration login,
 account/loan request, or provider call was performed by the implementer. The
 credentialed assumptions below and in `protocol.md` remain unverified.
 
