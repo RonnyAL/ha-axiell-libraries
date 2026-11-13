@@ -9,6 +9,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any
 from urllib.parse import quote, urlencode, urlsplit
 from uuid import uuid4
@@ -20,19 +21,94 @@ APP_BUILD = "2026420500"
 PACKAGE_NAME = "solus.AllAxiell"
 GLOBAL_APP_ID = "5C72D777-E044-4B76-97A8-F240FA42E9BD"
 _TIMEOUT = aiohttp.ClientTimeout(total=20)
+_ZERO_SESSION_ID = "00000000-0000-0000-0000-000000000000"
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+    ),
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+}
 _SOLUS_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.sol\.us")
 
 
+_STAGES = frozenset(
+    {
+        "provider",
+        "discovery",
+        "manual_lookup",
+        "routing",
+        "bootstrap",
+        "login_presession",
+        "login_checksession",
+    }
+)
+_REASONS = frozenset(
+    {
+        "transport",
+        "http",
+        "api_rejection",
+        "response_schema",
+        "missing_token",
+        "security",
+    }
+)
+
+
 class SolusError(Exception):
-    """Safe error boundary; messages never include upstream data."""
+    """Static messages and finite diagnostic context, never upstream content."""
+
+    default_reason = "response_schema"
+
+    def __init__(self, *args: object, reason=None, status=None) -> None:
+        super().__init__(*args)
+        self.stage = "provider"
+        self.reason = reason if reason in _REASONS else self.default_reason
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+
+    def at_stage(self, stage: str) -> None:
+        """Keep the innermost known stage, including routing during discovery."""
+        if self.stage == "provider" and stage in _STAGES:
+            self.stage = stage
+
+    def reference(self, fallback: str = "provider") -> str:
+        """Validate again at the UI boundary; exception text is never rendered."""
+        stage = self.stage if self.stage in _STAGES else "provider"
+        if stage == "provider" and fallback in _STAGES:
+            stage = fallback
+        reason = self.reason if self.reason in _REASONS else "response_schema"
+        status = self.status
+        suffix = f"/{status}" if type(status) is int and 100 <= status <= 599 else ""
+        return f"{stage}/{reason}{suffix}"
+
+
+def _at_stage(stage):
+    """Annotate only expected provider errors; programming errors propagate."""
+
+    def decorate(function):
+        @wraps(function)
+        async def wrapped(*args, **kwargs):
+            try:
+                return await function(*args, **kwargs)
+            except SolusError as error:
+                error.at_stage(stage)
+                raise
+
+        return wrapped
+
+    return decorate
 
 
 class SolusConnectionError(SolusError):
     """Transport or HTTP server failure."""
 
+    default_reason = "transport"
+
 
 class SolusAuthError(SolusError):
     """Authentication was rejected or an HTTP session expired."""
+
+    default_reason = "api_rejection"
 
 
 class SolusSessionExpired(SolusAuthError):
@@ -45,6 +121,8 @@ class SolusProtocolError(SolusError):
 
 class SolusSecurityError(SolusError):
     """Unsafe destination or redirect rejected before forwarding secrets."""
+
+    default_reason = "security"
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,25 +185,35 @@ async def _request(
     payload: dict | None = None,
     headers: dict | None = None,
     bootstrap: bool = False,
+    auth_response: bool = False,
 ) -> Any:
     """No automatic redirects, retries, raw exception messages or HTTP logging."""
     kwargs = {"allow_redirects": False, "timeout": _TIMEOUT}
+    request_headers = {**_BROWSER_HEADERS, **(headers or {})}
     if payload is not None:
         kwargs["json"] = payload
-    if headers is not None:
-        kwargs["headers"] = headers
+        request_headers["Content-Type"] = "application/json; charset=utf-8"
+    kwargs["headers"] = request_headers
     try:
         async with session.request(method, url, **kwargs) as response:
             if 300 <= response.status < 400:
-                raise SolusSecurityError("Solus redirect rejected") from None
-            if response.status in (401, 403):
-                raise SolusAuthError("Solus authentication required") from None
+                raise SolusSecurityError(
+                    "Solus redirect rejected", status=response.status
+                ) from None
+            if auth_response and response.status in (401, 403):
+                raise SolusAuthError(
+                    "Solus authentication required",
+                    reason="http",
+                    status=response.status,
+                ) from None
             if response.status != 200:
-                raise SolusConnectionError("Solus server unavailable") from None
+                raise SolusConnectionError(
+                    "Solus server unavailable", reason="http", status=response.status
+                ) from None
             if bootstrap:
                 await response.read()
                 return None
-            return await response.json(content_type=None)
+            return await response.json(content_type=None, encoding="utf-8-sig")
     except TimeoutError, aiohttp.ClientError:
         raise SolusConnectionError("Unable to contact Solus") from None
     except ValueError, TypeError, UnicodeError:
@@ -137,10 +225,16 @@ def _section(payload: Any, *, authentication: bool = False) -> dict:
     detail = _decode(payload.get("d")) if isinstance(payload, dict) else None
     if not isinstance(detail, dict):
         raise SolusProtocolError("Malformed Solus response") from None
-    if detail.get("status") != "success":
+    status = detail.get("status")
+    if not isinstance(status, str) or status.lower() != "success":
         if authentication and detail.get("status") == "failure":
             raise SolusAuthError("Solus authentication rejected") from None
-        raise SolusProtocolError("Unsuccessful Solus response") from None
+        raise SolusProtocolError(
+            "Unsuccessful Solus response",
+            reason="api_rejection"
+            if isinstance(status, str) and status.lower() in {"failure", "error"}
+            else "response_schema",
+        ) from None
     return detail
 
 
@@ -155,6 +249,7 @@ def _list_detail(section: dict, *, nonempty: bool = False) -> list[dict]:
     return detail
 
 
+@_at_stage("routing")
 async def _routing(session: aiohttp.ClientSession, app_id: str) -> tuple[str, str]:
     payload = _decode(
         await _request(
@@ -186,7 +281,12 @@ def _locator_success(response: Any) -> None:
     """Locator status is separate from the authenticated catalogue protocol."""
     status = response.get("Status") if isinstance(response, dict) else None
     if not isinstance(status, str) or status.lower() != "ok":
-        raise SolusProtocolError("Unable to discover Solus libraries") from None
+        raise SolusProtocolError(
+            "Unable to discover Solus libraries",
+            reason="api_rejection"
+            if isinstance(status, str) and status.lower() in {"failure", "error"}
+            else "response_schema",
+        ) from None
 
 
 async def _locator(session: aiohttp.ClientSession, method: str, payload: dict) -> Any:
@@ -203,6 +303,7 @@ async def _locator(session: aiohttp.ClientSession, method: str, payload: dict) -
     )
 
 
+@_at_stage("manual_lookup")
 async def async_lookup_location(
     session: aiohttp.ClientSession, location_id: str
 ) -> Library:
@@ -212,6 +313,7 @@ async def async_lookup_location(
     return await _library(session, response)
 
 
+@_at_stage("discovery")
 async def async_find_nearby(
     session: aiohttp.ClientSession, latitude: float, longitude: float
 ) -> list[Library]:
@@ -270,8 +372,9 @@ class SolusClient:
         self._device_id = device_id
         self._locale = locale
         self._token = ""
-        self._session_id = ""
+        self._session_id = _ZERO_SESSION_ID
         self._user_id = ""
+        self._bootstrap_url = ""
         self._authenticated = False
         self._session_expired = False
 
@@ -282,24 +385,33 @@ class SolusClient:
             "DeviceID": self._device_id,
             "AppVersion": APP_VERSION,
             "PackageName": PACKAGE_NAME,
-            "PlatType": "Home Assistant",
-            "PlatVer": "1",
+            "PlatType": "Android",
+            "PlatVer": "17",
             "PlatModel": "Home Assistant",
-            "DName": "Home Assistant",
+            "DName": "Android",
             "Locale": self._locale,
-            "font": "100",
             "AppBuild": APP_BUILD,
-            "ServerRoot": self._server + "/",
         }
 
-    async def _call(self, method: str, request: dict, *, authentication=False) -> dict:
-        headers = {
+    def _catalogue_headers(self) -> dict:
+        return {
+            **_BROWSER_HEADERS,
             "x-session": self._token,
             "x-devicesession": self._session_id,
             "x-appversion": APP_VERSION,
             "x-appbuild": APP_BUILD,
             "x-apppackage": PACKAGE_NAME,
         }
+
+    async def _call(
+        self,
+        method: str,
+        request: dict,
+        *,
+        authentication=False,
+        user_id: str | None = None,
+    ) -> dict:
+        headers = self._catalogue_headers()
         if method == "LoginPreSession":
             envelope = {
                 "AppID": self._app_id,
@@ -309,13 +421,12 @@ class SolusClient:
                 "UserID": self._user_id,
                 "Request": request,
             }
-            headers.update(
-                {
-                    "Origin": self._server,
-                    "Referer": self._server + "/v4/",
-                    "X-Requested-With": "XMLHttpRequest",
-                }
-            )
+            headers = {
+                **_BROWSER_HEADERS,
+                "Origin": self._server,
+                "Referer": self._bootstrap_url,
+                "X-Requested-With": "XMLHttpRequest",
+            }
         else:
             envelope = {
                 "AppID": self._app_id,
@@ -323,7 +434,7 @@ class SolusClient:
                 "SessionID": self._session_id,
                 "DeviceID": self._device_id,
                 "Locale": self._locale,
-                "UserID": self._user_id,
+                "UserID": self._user_id if user_id is None else user_id,
                 "Request": request,
             }
         try:
@@ -334,6 +445,7 @@ class SolusClient:
                     f"{self._server}/v4/Cat.asmx/{method}?rnd={uuid4().hex}",
                     payload=envelope,
                     headers=headers,
+                    auth_response=True,
                 ),
                 authentication=authentication,
             )
@@ -348,20 +460,38 @@ class SolusClient:
     async def async_login(self, card: str, pin: str) -> list[dict]:
         """Bootstrap cookies then establish an account session; never create IDs."""
         self._authenticated = False
-        self._token = self._session_id = ""
+        self._token = ""
+        self._session_id = _ZERO_SESSION_ID
         self._user_id = card
-        self._server, auth_server = await _routing(self._session, self._app_id)
+        stage = "routing"
         try:
-            metadata = self._metadata()
+            self._server, auth_server = await _routing(self._session, self._app_id)
+            stage = "bootstrap"
+            bootstrap_metadata = {
+                **self._metadata(),
+                "font": "",
+                "ServerRoot": self._server + "/",
+            }
             query = urlencode(
-                {"s": base64.b64encode(json.dumps(metadata).encode()).decode()}
+                {
+                    "s": base64.b64encode(
+                        json.dumps(
+                            bootstrap_metadata,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).decode("ascii")
+                }
             )
+            self._bootstrap_url = f"{auth_server}/v4/Auth.aspx?{query}"
             await _request(
                 self._session,
                 "GET",
-                f"{auth_server}/v4/Auth.aspx?{query}",
+                self._bootstrap_url,
+                headers=self._catalogue_headers(),
                 bootstrap=True,
             )
+            stage = "login_presession"
             pre = await self._call(
                 "LoginPreSession",
                 {
@@ -372,35 +502,60 @@ class SolusClient:
                 },
                 authentication=True,
             )
-            self._token = _text(_list_detail(pre, nonempty=True)[0].get("AuthToken"))
+            users = _list_detail(pre, nonempty=True)
+            token = users[0].get("AuthToken")
+            if (
+                token is None
+                or token == ""
+                or (isinstance(token, str) and not token.strip())
+            ):
+                raise SolusProtocolError(
+                    "Missing Solus authentication token", reason="missing_token"
+                ) from None
+            self._token = _text(token)
+            stage = "login_checksession"
             check = await self._call(
                 "LoginCheckSession",
                 {
-                    **metadata,
+                    **self._metadata(),
+                    "NetworkType": "WiFi",
+                    "ScreenW": 384,
+                    "ScreenAW": 384,
+                    "ScreenH": 832,
+                    "ScreenAH": 832,
+                    "DPR": 1,
                     "AuthToken": self._token,
                 },
                 authentication=True,
+                user_id="",
             )
-            users = _list_detail(check, nonempty=True)
+            check_users = _decode(check.get("Detail"))
+            if check_users is not None and check_users != []:
+                users = _list_detail(check, nonempty=True)
             session = check.get("Detail2")
             if session is not None:
                 session = _decode(session)
                 if not isinstance(session, dict):
                     raise SolusProtocolError("Malformed Solus session") from None
                 destination = session.get("ServerToUse")
-                if destination and _origin(destination) != self._server:
-                    raise SolusSecurityError(
-                        "Untrusted Solus session destination"
-                    ) from None
-                if session.get("SessionID") is not None:
-                    self._session_id = str(session["SessionID"])
-            if users[0].get("AuthToken"):
-                self._token = _text(users[0]["AuthToken"])
+                if destination is not None and destination != "":
+                    if _origin(destination) != self._server:
+                        raise SolusSecurityError(
+                            "Untrusted Solus session destination"
+                        ) from None
+                session_id = session.get("SessionID")
+                if session_id is not None and session_id != "":
+                    self._session_id = _text(session_id)
+            token = users[0].get("AuthToken")
+            if token is not None and token != "":
+                self._token = _text(token)
             self._authenticated = True
             self._session_expired = False
             return users
         except SolusError as error:
-            self._token = self._session_id = ""
+            error.at_stage(stage)
+            self._token = ""
+            self._session_id = _ZERO_SESSION_ID
             if isinstance(error, SolusAuthError):
                 self._session_expired = False
             raise
@@ -414,7 +569,7 @@ class SolusClient:
     async def async_get_loans(self, user_id: str) -> list[dict]:
         """Fetch loans; malformed responses never imply an empty account."""
         self._require_session()
-        section = await self._call("LoansGet", {"UserID": user_id})
+        section = await self._call("LoansGet", {"UserID": user_id}, user_id=user_id)
         rows = _list_detail(section)
         loan_ids: set[str] = set()
         for row in rows:

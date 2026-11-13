@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Velg bibliotek",
-        "description": "Søk i treffene i nærheten, eller skriv inn bibliotekets nøyaktige LocationID manuelt.",
+        "description": "Søk i treffene i nærheten, eller skriv inn bibliotekets nøyaktige LocationID manuelt. Listen kan være ufullstendig.",
         "data": {
           "library": "Bibliotek"
         }
@@ -40,8 +40,8 @@
       }
     },
     "error": {
-      "invalid_auth": "Biblioteket avviste påloggingen. Kontroller lånekortnummer og PIN.",
-      "cannot_connect": "Kunne ikke kontakte eller tolke svar fra bibliotektjenesten. Prøv igjen senere."
+      "invalid_auth": "Biblioteket avviste påloggingen. Kontroller lånekortnummer og PIN. Referanse: {reference}.",
+      "cannot_connect": "Kunne ikke kontakte eller tolke svar fra bibliotektjenesten. Prøv igjen senere. Referanse: {reference}."
     },
     "abort": {
       "already_configured": "Dette biblioteket og lånekortet er allerede konfigurert.",

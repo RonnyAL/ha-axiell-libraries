@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Choose a library",
-        "description": "Search the nearby results, or enter the library's exact LocationID manually.",
+        "description": "Search the nearby results, or enter the library's exact LocationID manually. The provider list may be incomplete.",
         "data": {
           "library": "Library"
         }
@@ -40,8 +40,8 @@
       }
     },
     "error": {
-      "invalid_auth": "The library rejected the credentials. Check your card number and PIN.",
-      "cannot_connect": "Unable to contact or interpret the library provider. Try again later."
+      "invalid_auth": "The library rejected the credentials. Check your card number and PIN. Reference: {reference}.",
+      "cannot_connect": "Unable to contact or interpret the library provider. Try again later. Reference: {reference}."
     },
     "abort": {
       "already_configured": "This library and card are already configured.",

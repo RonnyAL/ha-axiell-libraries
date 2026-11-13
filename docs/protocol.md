@@ -67,7 +67,7 @@ coordinates. No credentials, DeviceID, login or account requests were used.
 
 Response has outer `d` envelope; `d.status` is `success`, `d.Detail[0].AuthToken` is a **secret**.
 
-4. `POST <Server>/v4/Cat.asmx/LoginCheckSession?rnd=<random>` using standard client request envelope: `AppID, TemplateID, SessionID, DeviceID, Locale, UserID, Request`. `Request` is the app's metadata object containing `AuthToken`, package/version/device descriptors. Set request headers `x-session: <auth-token>`, `x-devicesession: <session-id>` (initially blank/zero), `x-appversion`, `x-appbuild`, `x-apppackage`. `Detail2.SessionID` and `Detail2.ServerToUse` may update the connection. Return `Detail` may have a new AuthToken; update in-memory session only. Never persist AuthToken unless its lifetime and need are proven. Validate redirect host before using it.
+4. `POST <Server>/v4/Cat.asmx/LoginCheckSession?rnd=<random>` using standard client request envelope: `AppID, TemplateID, SessionID, DeviceID, Locale, UserID, Request`. `Request` is the app's metadata object containing `AuthToken`, package/version/device descriptors. Set request headers `x-session: <auth-token>`, `x-devicesession: <session-id>` (initially the zero UUID), `x-appversion`, `x-appbuild`, `x-apppackage`. `Detail2.SessionID` and `Detail2.ServerToUse` may update the connection. Return `Detail` may have a new AuthToken; update in-memory session only. Never persist AuthToken unless its lifetime and need are proven. Validate redirect host before using it.
 5. `POST <Server>/v4/Cat.asmx/LoansGet?rnd=<random>` with envelope `UserID: <card>` and `Request: {"UserID": "<card>"}`. Successful JSON `d.Detail` is an array of loans.
 6. For each distinct record needing metadata, `POST <Server>/v4/Cat.asmx/RecordGet?rnd=<random>` with same envelope and request `{"RecordID": "<recordID>", "Source": "ILS", "SearchLimit": ""}`. `d.Detail` contains the catalog record (may sometimes be serialized JSON string or single-item list; defensive decode if required).
 
@@ -137,8 +137,9 @@ success status before resolving any repo route. The previously tested
 Empty direct lists yield no candidates, keeping manual entry available.
 Serialized envelopes remain a defensive allowance; the legacy wrapper is
 covered offline. Neither is a new live observation. Malformed responses fail explicitly.
-This status handling applies only to discovery; authenticated `d.status`
-validation is unchanged. `APIUrl` is never used for credentials.
+Discovery and authenticated success statuses are case-insensitive; their
+success words remain distinct (`ok` and `success`, respectively). `APIUrl` is
+never used for credentials.
 Both discovery and each login resolve `GET https://repo.sol.us/id/<AppID>/2026.42`
 and use its `Server`. An optional repo `AuthServer` can specify the bootstrap
 origin; otherwise `Server` is used. That optional field is a defensive assumption,
@@ -152,14 +153,48 @@ the trusted HTTPS repo before login; moving tokens to another hostname requires
 additional verified routing evidence. This deliberately fails safely if a
 provider introduces a previously unseen routing arrangement.
 
-Bootstrap metadata retains the observed app identity: version `2026.42`, build
-`2026420500`, package `solus.AllAxiell`. `AppID` and `TemplateID` use the selected
-AppID; `DeviceID` and locale come from the caller; `ServerRoot` is the processing
-origin with trailing slash. Device descriptors are deterministic integration
-values: `PlatType`, `PlatModel`, and `DName` are `Home Assistant`, `PlatVer` is
-`1`, and `font` is `100`. Their exact acceptance and the reuse of bootstrap
-metadata plus `AuthToken` for `LoginCheckSession.Request` require a local live
-probe; the sanitized protocol lists these keys but not their verified values.
+The supplied owner-run Python PoC succeeded on 2026-11-13 through bootstrap,
+pre-session, check-session, loans and catalogue. The processing host stayed
+`process-m-eu1.sol.us`; a live server switch was not observed. The corrected HA
+request contract is now covered at the offline HTTP boundary:
+
+- Common headers: `User-Agent: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36`
+  and `Accept: application/json, text/javascript, */*; q=0.01`. JSON POSTs add
+  `Content-Type: application/json; charset=utf-8`.
+- Shared metadata: selected `AppID` and `TemplateID`, persistent `DeviceID`,
+  `AppVersion: 2026.42`, `AppBuild: 2026420500`, `PackageName: solus.AllAxiell`,
+  `PlatType: Android`, `PlatVer: 17`, `DName: Android`, `Locale: nb-NO`.
+  HA uses `PlatModel: Home Assistant`; this generic label differs from the
+  owner's physical-device label and remains unverified live.
+- Bootstrap adds `font: ""` and `ServerRoot` with trailing slash. Its `s` query
+  contains normal Base64 of compact UTF-8 JSON with non-ASCII text preserved,
+  then normal URL query escaping. Initial session ID is
+  `00000000-0000-0000-0000-000000000000` in bootstrap/catalogue headers; initial
+  `x-session` is empty. Each login resets that session ID while retaining DeviceID.
+- Pre-session sends the JSON shown above, without `SessionID` or `VerifyToken`.
+  Its headers include the processing `Origin`, the **full bootstrap URL** as
+  `Referer`, and `X-Requested-With: XMLHttpRequest`.
+- Check-session uses the standard envelope with outer `UserID: ""`, the zero
+  session UUID initially, and `Request` containing shared metadata plus
+  `NetworkType: WiFi`, `ScreenW: 384`, `ScreenAW: 384`, `ScreenH: 832`,
+  `ScreenAH: 832`, `DPR: 1` and the pre-session `AuthToken`. The bootstrap-only
+  `font`/`ServerRoot` fields are absent. Token and session are sent in the
+  catalogue headers described above, together with version/build/package.
+- Absent, null or empty check-session user details retain the pre-session
+  users/token. Supplied new details must be valid. Optional returned session
+  ID/token update only memory. Success is case-insensitive and JSON accepts
+  a UTF-8 BOM. Loans use the selected user in both envelope and inner request.
+
+This corrects the earlier empty session ID, card-valued check-session outer
+UserID, reused bootstrap metadata, omitted browser headers/full Referer,
+different platform values and required fresh check-session users. Which mismatch
+caused the owner's failure remains unknown until the corrected integration is
+run locally. Remaining deliberate differences include the generic model label,
+strict same-processing-origin routing, blocked redirects and response validation
+that rejects malformed supplied fields rather than accepting them permissively.
+Cookie absence is nonfatal; real isolated aiohttp cookie transport is tested
+locally both with and without a synthetic server-issued cookie. That establishes
+client behavior, not the upstream server's cookie requirements.
 
 `async_login(card, pin)` returns the decoded nonempty user-detail list;
 `async_get_loans(user_id)` returns a decoded list, with `[]` representing an
@@ -167,9 +202,10 @@ explicit successful empty account only. `async_get_record(record_id, source)`
 returns an object or `None` for an explicit empty record. Catalogue transport
 errors propagate so the coordinator can handle individual enrichment failures.
 All calls use a 20-second total timeout, no transport retries, and no automatic
-login retries. HTTP 401/403 during login raises `SolusAuthError`; during an
-authenticated data request it clears the token and raises its subclass
-`SolusSessionExpired`, allowing the coordinator to attempt one recovery login.
+login retries. HTTP 401/403 from pre-session/check-session raises `SolusAuthError`;
+unauthenticated locator/routing/bootstrap HTTP rejection is a connection error,
+not evidence of a bad card/PIN. During an authenticated data request, HTTP
+401/403 clears the token and raises `SolusSessionExpired`, allowing the coordinator to attempt one recovery login.
 Actual expiry codes inside JSON `d.status` are unverified: unknown unsuccessful
 statuses raise `SolusProtocolError` and never trigger speculative login loops.
 All public errors use static messages and suppress sensitive exception context.
@@ -203,8 +239,8 @@ For login JSON, only explicit `d.status: failure` is treated as credential
 rejection; this is the synthetic negative fixture assumption, not a verified
 upstream auth error code. Missing, malformed or unknown statuses raise
 `SolusProtocolError`, including during authentication, and are shown as provider
-failures instead of requesting a new PIN. HTTP 401/403 remains an explicit
-authentication rejection. Exact upstream negative status codes still require a
+failures instead of requesting a new PIN. Pre-session/check-session HTTP
+401/403 remains an explicit authentication rejection. Exact upstream negative status codes still require a
 local probe by the owner with credentials outside Git.
 
 ## Coordinator refresh and catalogue policy
@@ -264,15 +300,37 @@ The implemented integration uses the approved native HA, multiple-entry,
 read-only design. Offline tests now run against HA 2026.11.0 and 2026.11.1
 with Python 3.14.7 locally and 3.14.10 in CI, including real HA flow, entity,
 reload and session lifecycle APIs. They do not establish compatibility beyond
-those versions, live Marketplace installation, browser rendering, a separate HA
-process restart, actual cookie issuance, or a successful live integration login. Earlier
+those versions, browser rendering, a separate HA process restart, upstream
+cookie issuance, or a successful live integration login. The owner separately
+reports Marketplace installation/update, but HA account setup still fails. Earlier
 owner-verified endpoint observations must not be conflated with those checks.
 
 Anonymous public discovery and repo routing were checked on 2026-11-13 as
 described above. Before relying on live account operation, the owner must check
-bootstrap device descriptors and `LoginCheckSession.Request`, optional repo `AuthServer`,
+acceptance of the generic `Home Assistant` model label, optional repo `AuthServer`,
 JSON auth rejection/expiry codes, and the strict single-label `*.sol.us`
 same-processing-origin routing policy. No credentialed integration requests
 were made during implementation. Use the [README's HA UI smoke test](../README.md#optional-owner-run-live-smoke-test)
 without exposing credentials or recording HTTP bodies. The
 [validation ledger](validation.md) records task evidence and remaining review.
+
+## Safe setup references
+
+HA error descriptions interpolate only a fixed `stage/reason[/HTTP-status]`
+reference. Stages are `discovery`, `manual_lookup`, `routing`, `bootstrap`,
+`login_presession`, `login_checksession`, with `provider` for generic existing
+errors. Reasons are `transport`, `http`, `api_rejection`, `response_schema`,
+`missing_token` and `security`. Status is optional, an integer from 100 to 599;
+strings and booleans are excluded. The boundary revalidates these allowlists.
+Neither exception text nor provider status messages, bodies, URLs, headers,
+cookies, credentials, tokens or DeviceID are interpolated.
+
+Literal `failure`/`error` API statuses get an API-rejection reference, while
+missing, malformed or unrecognized statuses remain schema failures. Only the
+existing exact authentication `failure` and auth-stage HTTP 401/403 paths
+request card/PIN correction. An unverified API error does not imply bad PIN or
+JSON session expiry. Errors retain existing catchable SolusError subclasses and
+static production messages; arbitrary programming exceptions are not caught.
+
+For incomplete nearby results and authoritative Norwegian library names without
+a verified Solus join key, see [library discovery evidence](library-discovery.md).
