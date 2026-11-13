@@ -23,6 +23,15 @@ origins, repo routing and authentication parsing retain their checks. The
 integration remains unreleased version `0.2.0`; no migration or new account
 identity is needed.
 
+Separately, after the fix, the controller ran the actual corrected client
+anonymously. `async_lookup_location('Malselv')` returned LocationID and fallback
+name `Malselv`, using `https://process-m-eu1.sol.us` as processing origin.
+`async_find_nearby(69.0, 19.0)` parsed/resolved one candidate; that public sample
+candidate was not Malselv. This does not check nearby results for the owner's HA
+coordinates. These successful typed-result checks are distinct from the initial
+response-shape observations, and used no credentials, DeviceID, login or account
+requests. No raw response is saved.
+
 Changed files: `custom_components/axiell_libraries/solus.py`,
 `tests/test_solus.py`, `tests/test_config_flow.py`, `docs/protocol.md` and this
 ledger. The HTTP-boundary regressions use synthetic values and `tests/http.py`.
@@ -53,6 +62,8 @@ and `OK`, and clarifies direct-row missing-identity coverage. Both actual
 Core/official harness pairs were verified via installed package metadata:
 2026.11.1 in `/tmp/axiell-ha202611-venv`, 2026.11.0 in
 `/tmp/axiell-ha2026110-venv`, both Python 3.14.7.
+The local formatter count includes the controller's ignored
+`public_lookup_check.py`; there are 28 tracked Python source files.
 
 Exactly five upstream warnings remain unsuppressed in both environments:
 `homeassistant/components/http/server.py:223` inherits aiohttp `web.Application`;
@@ -61,8 +72,8 @@ and `_async.py:11`, `:127`, `:128`. No new warnings appeared.
 
 Implementer self-review checked observed and legacy formats, rejected statuses
 before routing, required identity, safe destinations, persistent DeviceID and
-the diff's privacy boundary. Independent review, public typed-result rechecks,
-fix PR and CI are the controller's next steps. No live integration login,
+the diff's privacy boundary. Independent review, fix PR and CI are the
+controller's next steps. No live integration login,
 account/loan request, or provider call was performed by the implementer. The
 credentialed assumptions below and in `protocol.md` remain unverified.
 

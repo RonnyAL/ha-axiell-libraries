@@ -36,6 +36,13 @@ probe also confirmed a valid HTTPS Solus `Server` from that repo route. Validate
 network destinations before sending credentials; this public check does not
 verify the integration's live login or account behavior.
 
+After the parser correction, a separate anonymous check using the actual client
+resolved `Malselv`: LocationID and fallback name were both `Malselv`, with
+processing origin `https://process-m-eu1.sol.us`. The actual nearby client also
+parsed/resolved one candidate for `(69.0, 19.0)`; that sample candidate was not
+Malselv. This checks discovery only, not nearby results for the owner's HA
+coordinates. No credentials, DeviceID, login or account requests were used.
+
 ## Working authentication path
 
 1. Generate **one** 16-character lowercase hexadecimal `DeviceID` and persist it with the Home Assistant config entry on successful setup. Do **not** create one per login.
