@@ -281,9 +281,11 @@ Renewal alone has a dedicated decoder: case-insensitive `success` and `error`
 produce terminal replies. Another safe, nonempty status plus a usable
 `statusmessage` is a confirmation challenge; its exact status is kept internally
 as the next acknowledgement code. JSON-string `d` envelopes are defensively
-supported, consistently with other endpoints. Missing/malformed status, message
-or envelope is a protocol failure, never implicit success or consent. Other
-catalogue and authentication methods retain their success-only decoder.
+supported, consistently with other endpoints. Missing/malformed status or
+envelope is a protocol failure, never implicit success or consent. Challenges
+require a usable message; terminal success/error replies may omit the message
+and use a static fallback. A supplied malformed terminal message is rejected.
+Other catalogue and authentication methods retain their success-only decoder.
 Case variants, serialized envelopes and negative/challenge examples are tested
 synthetically; provider challenge semantics remain unverified against a server.
 
@@ -313,6 +315,21 @@ The offline tests mock the HTTP request boundary and verify bootstrap ordering,
 payloads, safe routing, and separate client tokens. They do not verify live
 Solus behavior or actual server cookie issuance; a local owner-run probe with
 credentials outside Git remains necessary.
+
+The current catalogue wrapper uses the library AppID as TemplateID, matching
+the verified authentication implementation. Entries do not store a separate
+TemplateID. Renewal supports those existing authenticated accounts; libraries
+requiring a distinct template remain an unverified limitation, not a silently
+expanded configuration contract. The action supplies the selected entry's card
+as UserID, matching existing LoansGet.
+
+The per-entry coordinator owns fresh loan lookup, consent and all I/O. Its
+operation lock serializes polling and renewal; writes are never retried
+automatically. The HA admin action is a thin adapter with optional response
+data. See the [action and confirmation guide](home-assistant-ui.md#renew-one-loan)
+for ten-minute memory-only tokens, partial success and unknown-outcome handling.
+Known-secret redaction cannot remove arbitrary personal provider prose. No live
+LoanRenew or provider confirmation chain has been tested.
 
 ## Configuration identity and validation
 

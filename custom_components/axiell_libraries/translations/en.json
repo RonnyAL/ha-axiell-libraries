@@ -73,5 +73,70 @@
         "name": "Library loans"
       }
     }
+  },
+  "services": {
+    "renew_loan": {
+      "name": "Renew loan",
+      "description": "Explicitly renew one loan in the selected account. Review any fee or provider prompt before confirming. Administrator access required.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Library account",
+          "description": "Select the library and card entry that owns the loan."
+        },
+        "loan_id": {
+          "name": "Loan ID",
+          "description": "Copy loan_id from the Active loans sensor's loans attribute. This is not record_id."
+        },
+        "confirm": {
+          "name": "Confirm reviewed prompt",
+          "description": "Enable only after reviewing the message associated with this confirmation ID."
+        },
+        "confirmation_id": {
+          "name": "Confirmation ID",
+          "description": "Use the local ID returned for this account and loan; expires after ten minutes and on reload."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_confirmation": {
+      "message": "Request renewal again for a new confirmation, then supply both confirm: true and its confirmation_id."
+    },
+    "loan_not_found": {
+      "message": "This loan is no longer in the selected account."
+    },
+    "not_renewable": {
+      "message": "This loan cannot currently be renewed."
+    },
+    "missing_source": {
+      "message": "The library did not identify this loan's source."
+    },
+    "loan_changed": {
+      "message": "The loan changed. Request renewal again to review new consent."
+    },
+    "confirmation_limit": {
+      "message": "The library returned repeated or too many consent prompts. Check with the library."
+    },
+    "authentication_failed": {
+      "message": "Authentication failed. Reauthenticate the selected library account."
+    },
+    "refresh_failed": {
+      "message": "Unable to read current loans. No renewal was attempted."
+    },
+    "provider_rejected": {
+      "message": "The library rejected renewal: {message}"
+    },
+    "outcome_unknown": {
+      "message": "Renewal outcome is unknown. Check the loan with your library before retrying. Renewal was not automatically repeated."
+    },
+    "entry_closing": {
+      "message": "The library account is unloading. Try again once it is loaded."
+    },
+    "confirmation_required": {
+      "message": "{message} Review this prompt before confirming. Call renew_loan again with the same account and loan, confirm: true and confirmation_id: {confirmation_id} within {expires_in} seconds."
+    },
+    "renewed_refresh_failed": {
+      "message": "The loan was renewed, but Home Assistant could not refresh. Use Update entity to refresh loans; do not repeat renewal solely to update Home Assistant."
+    }
   }
 }

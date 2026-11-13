@@ -2,7 +2,7 @@
 
 Use the installed **Superpowers** workflow. Begin with `superpowers:using-superpowers`, read the already-approved design and implementation plan, then use `superpowers:subagent-driven-development` if available (otherwise `superpowers:executing-plans`). Apply `superpowers:test-driven-development`, code review, and `superpowers:verification-before-completion`; do not skip tests.
 
-The owner has already chosen the design: **native Home Assistant custom integration; multiple config entries; persistent DeviceID per entry; read-only v1; Solus API; library discovery with searchable nearby results and manual LocationID**. Do not spend a session re-asking these decisions.
+The owner has already chosen the design: **native Home Assistant custom integration; multiple config entries; persistent DeviceID per entry; read-only v1; Solus API; library discovery with searchable nearby results and manual LocationID**. Do not spend a session re-asking these decisions. The owner has subsequently authorized explicit individual renewal with informed consent, as specified in `docs/superpowers/specs/2026-11-13-loan-renewal-design.md` and its implementation plan. Historical v1 documents remain read-only; the to-do entity remains read-only. No automatic/bulk renewal, live renewal test or release publication is authorized by this extension.
 
 Read in this order:
 1. `docs/superpowers/specs/2026-11-13-axiell-libraries-design.md`

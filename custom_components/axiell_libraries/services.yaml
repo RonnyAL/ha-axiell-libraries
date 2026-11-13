@@ -1,0 +1,19 @@
+renew_loan:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: axiell_libraries
+    loan_id:
+      required: true
+      example: "loan-a"
+      selector:
+        text:
+    confirm:
+      default: false
+      selector:
+        boolean:
+    confirmation_id:
+      selector:
+        text:

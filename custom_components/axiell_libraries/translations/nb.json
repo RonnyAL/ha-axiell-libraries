@@ -73,5 +73,70 @@
         "name": "Biblioteklån"
       }
     }
+  },
+  "services": {
+    "renew_loan": {
+      "name": "Forny lån",
+      "description": "Forny ett lån på den valgte kontoen. Vurder eventuelle gebyrer og meldinger før du bekrefter. Krever administratortilgang.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Bibliotekkonto",
+          "description": "Velg biblioteket og lånekortet som lånet tilhører."
+        },
+        "loan_id": {
+          "name": "Låne-ID",
+          "description": "Kopier loan_id fra loans-attributtet på sensoren Aktive lån. Ikke bruk record_id."
+        },
+        "confirm": {
+          "name": "Bekreft vurdert melding",
+          "description": "Aktiver først etter at du har vurdert meldingen som tilhører denne bekreftelses-ID-en."
+        },
+        "confirmation_id": {
+          "name": "Bekreftelses-ID",
+          "description": "Bruk den lokale ID-en for denne kontoen og dette lånet. Utløper etter ti minutter og ved omlasting."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_confirmation": {
+      "message": "Be om fornyelse på nytt for en ny bekreftelse. Oppgi både confirm: true og tilhørende confirmation_id."
+    },
+    "loan_not_found": {
+      "message": "Dette lånet finnes ikke lenger på den valgte kontoen."
+    },
+    "not_renewable": {
+      "message": "Dette lånet kan ikke fornyes nå."
+    },
+    "missing_source": {
+      "message": "Biblioteket oppga ikke kilden til dette lånet."
+    },
+    "loan_changed": {
+      "message": "Lånet er endret. Be om fornyelse på nytt og vurder nytt samtykke."
+    },
+    "confirmation_limit": {
+      "message": "Biblioteket sendte gjentatte eller for mange bekreftelser. Kontakt biblioteket."
+    },
+    "authentication_failed": {
+      "message": "Autentisering mislyktes. Autentiser den valgte bibliotekkontoen på nytt."
+    },
+    "refresh_failed": {
+      "message": "Kunne ikke hente gjeldende lån. Ingen fornyelse ble forsøkt."
+    },
+    "provider_rejected": {
+      "message": "Biblioteket avviste fornyelsen: {message}"
+    },
+    "outcome_unknown": {
+      "message": "Resultatet av fornyelsen er ukjent. Kontroller lånet hos biblioteket før du prøver igjen. Fornyelsen ble ikke gjentatt automatisk."
+    },
+    "entry_closing": {
+      "message": "Bibliotekkontoen lastes ut. Prøv igjen når den er lastet inn."
+    },
+    "confirmation_required": {
+      "message": "{message} Vurder meldingen før du bekrefter. Kjør renew_loan igjen med samme konto og lån, confirm: true og confirmation_id: {confirmation_id} innen {expires_in} sekunder."
+    },
+    "renewed_refresh_failed": {
+      "message": "Lånet ble fornyet, men Home Assistant kunne ikke oppdatere. Bruk Oppdater enhet for å hente lånene. Ikke gjenta fornyelsen bare for å oppdatere Home Assistant."
+    }
   }
 }
