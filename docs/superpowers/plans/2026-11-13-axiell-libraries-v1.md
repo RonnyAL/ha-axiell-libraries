@@ -110,7 +110,7 @@
 
 - [x] **Step 1:** Add integration installation/config documentation, limitations (unofficial API), local-only live smoke test instructions without writing PIN to disk or logs, and tests for any uncovered high-risk failure.
 - [x] **Step 2:** Run full `pytest -q`, `ruff check .`, `ruff format --check .`, validate manifest/config flow against available HA toolchain and ensure no credentials/PII (`git grep` + tracked-file inspection). Do not claim unavailable tools passed.
-- [ ] **Step 3:** Run Superpowers code review (`requesting-code-review`), address findings, rerun tests. Controller owns the independent Task 6 and final broad reviews; pending after the local documentation commit.
+- [x] **Step 3:** Run Superpowers code review (`requesting-code-review`), address findings, rerun tests. All task reviews and final whole-branch review completed; the final loan-validation finding was fixed in `a481e30` and passed scoped re-review. See `docs/validation.md`.
 - [x] **Step 4:** Commit `docs: finalize v1 installation and security notes`, report tested scope and unverified live assumptions. Leave repo private.
 
 ## Self-review (for implementer)

@@ -40,8 +40,9 @@ config entry data, which is not a dedicated secrets vault.
 Paths below are relative to the repository. `cc/` abbreviates
 `custom_components/axiell_libraries/`. Historical task outputs come from the
 local task reports; timing is the recorded run, not a performance guarantee.
-Task 1–5 independent reviews were recorded as complete by the controller.
-Task 6 review completion remains pending the controller's scoped final re-review.
+All six task reviews are complete. The final whole-branch review identified
+one loan-validation issue; commit `a481e30` fixed it and scoped re-review
+confirmed it addressed with no new breakage or remaining findings.
 
 | Task / local commit | Files changed | RED → GREEN and final regression output | API assumptions / next task |
 | --- | --- | --- | --- |
@@ -50,7 +51,7 @@ Task 6 review completion remains pending the controller's scoped final re-review
 | 3 Flow / `0483cb0` | `cc/config_flow.py`, `cc/strings.json`, `cc/translations/{en,nb}.json`, `cc/solus.py`, `tests/{conftest,test_config_flow,test_solus}.py`, `pyproject.toml`, `docs/protocol.md` | Real-flow/auth-status RED: `12 failed, 35 deselected in 0.87s` → focused `47 passed in 0.39s`; flow `10 passed in 0.14s`; full `89 passed in 0.57s`. Ruff: `All checks passed!`; `10 files already formatted`. | Only synthetic explicit `failure` means JSON credential rejection; unknown status is provider failure. Browser selector rendering unverified. Next: coordinator. |
 | 4 Coordinator / `1b2babc` + review fix `8eff1ed` | `cc/coordinator.py`, `cc/models.py`, `cc/solus.py`, `tests/{test_coordinator,test_models,test_solus}.py`, `docs/protocol.md` | Coordinator stub: `27 failed in 0.51s` → `27 passed in 0.27s`. Metadata model regression: `1 failed, 41 deselected in 0.12s`; full `117 passed in 0.78s`. Review found queued expiry/recovery state bug: corrected real-client RED `3 failed, 1 passed in 0.18s`, transient recovery RED `1 failed in 0.13s` → `5 passed in 0.15s`; combined client/coordinator `70 passed in 0.56s`; full `122 passed in 0.78s`. Ruff: `All checks passed!`; `12 files already formatted`. | Cache, concurrency, source validation and bounded recovery are integration policies. No new live observations. Next: entities/lifecycle. |
 | 5 Entities / `65e3cd7` | `cc/__init__.py`, `cc/sensor.py`, `cc/todo.py`, `cc/manifest.json`, `cc/strings.json`, `cc/translations/{en,nb}.json`, `tests/{test_entities,test_config_flow}.py`, `docs/home-assistant-ui.md` | Missing setup: `9 failed in 0.19s` → `9 passed in 0.18s`. Full run caught config-flow fixture scope: `1 failed, 130 passed in 0.92s`; corrected fixture → `131 passed in 0.89s`. Extended lifecycle checks: `12 passed in 0.21s`; full `134 passed in 0.87s`. Ruff: `All checks passed!`; `15 files already formatted`; diff check empty. Controller independently checked `134 passed in 0.90s`. | Reload simulates restart using unchanged entry data with ID generation forbidden; actual process restart untested. Covers are optional external links. Next: final gate. |
-| 6 Documentation / current local change | `README.md`, `CODEX_START.md`, `docs/{home-assistant-ui,protocol,validation}.md`, plan checkboxes | Documentation-only change; no new production behavior or high-risk gap found requiring another behavior test. Final full suite: `134 passed in 0.90s`; Ruff: `All checks passed!`; `22 files already formatted`; diff check empty. Installed HA loader/translations: `1 passed in 0.09s`. | Independent Task 6 review and broad final review pending with controller; then owner-only local HA UI smoke test. |
+| 6 Documentation / `fd72d1c`, final fix `a481e30` | `README.md`, `CODEX_START.md`, `docs/{home-assistant-ui,protocol,validation}.md`, plan checkboxes | Initial documentation-only gate (before final review): `134 passed in 0.90s`; Ruff: `All checks passed!`; `22 files already formatted`; diff check empty. Installed HA loader/translations: `1 passed in 0.09s`. | Final review found a loan-row validation gap, fixed and reviewed below; final suite 159 tests. Next: optional owner-only local HA UI smoke test. |
 
 Historical command forms: Task 1 used `.venv/bin/python -m pytest -q` and
 `.venv/bin/ruff`; Tasks 2–6 used `/tmp/axiell-ha-venv/bin/python -m pytest -q`
@@ -98,12 +99,18 @@ RED exited 1 for the expected acceptance/snapshot assertions; all GREEN and
 quality commands exited 0. The 25 additions increase the historical 134-test
 suite to 159 tests. Tests were offline, with the same authorized local event-loop
 socket escalation and HA network guard described above. No live account test
-was performed. Next: the controller's scoped final re-review of this fix; Task 6
-review completion remains pending.
+was performed. Scoped final re-review confirmed the finding addressed with no
+new breakage. Task 6 and the whole-branch review are complete; no findings remain.
+
+Final independent verification after review: full offline suite `159 passed in
+1.07s`; installed HA loader/translations probe `1 passed in 0.09s`; Ruff
+`All checks passed!`; formatting `23 files already formatted`; `git diff
+--check` produced no output. All commands exited 0.
 
 ## Historical final commands and available HA tooling
 
-Run from the checkout in the verified environment:
+The initial documentation gate, before the final review fix, ran from the
+checkout in the verified environment (the later 159-test result is recorded above):
 
 ```text
 $ /tmp/axiell-ha-venv/bin/python -m pytest -q
@@ -146,14 +153,15 @@ manifest/strings validation.
 
 Privacy inspection used `git ls-files`, tracked-file byte/suffix inspection,
 JSON parsing and filename-only `git grep -Il` searches for credential fields and
-common token/private-key patterns. The 32 pre-documentation tracked files were
-text only, with no APK/XAPK, archive, HAR/packet capture, private-research path or
+common token/private-key patterns. The original 32 pre-documentation tracked
+files were text only, with no APK/XAPK, archive, HAR/packet capture, private-research path or
 NUL bytes. Credential-field matches were inspected as implementation references
 and explicit synthetic `TEST` values. Token/private-key pattern grep returned
 no matches (exit 1, expected). The three checked-in JSON fixtures are synthetic.
 This is a bounded repository inspection, not a claim that pattern matching can
 detect every possible secret. Ignored `research/private/` was neither read nor
-staged. Final documentation is text and contains no owner credentials.
+staged. A post-commit audit checked all 33 tracked files and found no prohibited
+binaries/captures. Final documentation is text and contains no owner credentials.
 
 ## Unverified behavior and handoff
 
@@ -174,8 +182,7 @@ staged. Final documentation is text and contains no owner credentials.
   complete-integration success is claimed. Reload/reauth identity is tested
   offline. The earlier owner's protocol probe is separate evidence.
 
-Next: the controller performs the scoped final re-review of the loan-validation
-fix and confirms Task 6 review completion. Only after that, the owner may use the
+Next: the owner may optionally use the
 [local HA UI smoke test](../README.md#optional-owner-run-live-smoke-test), entering
 card/PIN in HA only. Keep credentials, traces and account data out of chat,
 issues, logs and files, and keep this repository private.
