@@ -35,6 +35,7 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
         self._device_id: str | None = None
         self._libraries: dict[str, solus.Library] | None = None
         self._library: solus.Library | None = None
+        self._error_placeholders: dict[str, str] = {}
 
     @contextmanager
     def _session(self):
@@ -61,8 +62,10 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
                             session, latitude, longitude
                         )
                     self._libraries = {item.location_id: item for item in libraries}
-                except solus.SolusError:
-                    pass  # Manual lookup remains available on provider failures.
+                except solus.SolusError as error:
+                    self._error_placeholders = {
+                        "reference": error.reference("discovery")
+                    }
         if not self._libraries or (user_input and user_input["library"] == _MANUAL):
             return await self.async_step_library_manual()
         if user_input:
@@ -91,14 +94,18 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_library_manual(self, user_input=None) -> ConfigFlowResult:
         """Resolve an exact LocationID without inventing global text search."""
-        errors = {}
+        errors = {"base": "cannot_connect"} if self._error_placeholders else {}
         if user_input:
+            self._error_placeholders = {}
             try:
                 with self._session() as session:
                     self._library = await solus.async_lookup_location(
                         session, user_input["location_id"].strip()
                     )
-            except solus.SolusError:
+            except solus.SolusError as error:
+                self._error_placeholders = {
+                    "reference": error.reference("manual_lookup")
+                }
                 errors["base"] = "cannot_connect"
             else:
                 return await self.async_step_credentials()
@@ -106,20 +113,25 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="library_manual",
             data_schema=vol.Schema({vol.Required("location_id"): str}),
             errors=errors,
+            description_placeholders=self._error_placeholders,
         )
 
     async def _validate(self, data: dict[str, Any]) -> str | None:
         """Drop transient login cookies and tokens after each validation."""
+        self._error_placeholders = {}
         try:
             with self._session() as session:
                 client = solus.SolusClient(
                     session, data["app_id"], data["server_url"], data["device_id"]
                 )
                 await client.async_login(data["card"], data["pin"])
-        except solus.SolusAuthError:
-            return "invalid_auth"
-        except solus.SolusError:
-            return "cannot_connect"
+        except solus.SolusError as error:
+            self._error_placeholders = {"reference": error.reference()}
+            return (
+                "invalid_auth"
+                if isinstance(error, solus.SolusAuthError)
+                else "cannot_connect"
+            )
         return None
 
     async def async_step_credentials(self, user_input=None) -> ConfigFlowResult:
@@ -152,6 +164,7 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
                 {vol.Required("card"): str, vol.Required("pin"): _PIN}
             ),
             errors=errors,
+            description_placeholders=self._error_placeholders,
         )
 
     async def async_step_reauth(self, entry_data) -> ConfigFlowResult:
@@ -168,7 +181,10 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
                     entry, data_updates={"pin": user_input["pin"]}
                 )
         return self.async_show_form(
-            step_id=step_id, data_schema=_PIN_SCHEMA, errors=errors
+            step_id=step_id,
+            data_schema=_PIN_SCHEMA,
+            errors=errors,
+            description_placeholders=self._error_placeholders,
         )
 
     async def async_step_reauth_confirm(self, user_input=None) -> ConfigFlowResult:

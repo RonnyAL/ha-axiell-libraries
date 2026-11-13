@@ -8,17 +8,16 @@ This uses an **unofficial, reverse-engineered API**. The complete offline suite
 passes on Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
 Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.2.0** is
 prepared but unpublished.
-A live account and Marketplace installation have not been tested. The owner's
-earlier protocol probe verified authentication and loan/catalogue endpoints,
-not this complete integration. See [validation evidence](docs/validation.md).
+The owner reports Marketplace installation/update succeeded, but credentialed
+setup in HA still fails. The owner's live Python probe verified authentication
+and loan/catalogue endpoints; successful live integration setup remains
+unverified. See [validation evidence](docs/validation.md).
 
 ## Install through Marketplace
 
-The repository is currently **private**. Public Add from link installation is
-pending merge, the owner's separate decision to make the reviewed repository
-public, and publication of release `0.2.0`. This work does not change visibility
-or publish a release. The following is the intended installation procedure once
-those prerequisites are satisfied; it has not been exercised live.
+The owner has exercised Marketplace installation/update. Successful account
+setup still needs an owner-run check after installing this fix and restarting HA.
+The first planned published version remains `0.2.0`.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
    **Settings → Marketplace → Add from link** and enter
@@ -32,10 +31,9 @@ those prerequisites are satisfied; it has not been exercised live.
    updating; an update to a loaded integration requires a Home Assistant restart
    to load the new code.
 
-### Manual installation from the private checkout
+### Manual installation
 
-Until public distribution is available, obtain the reviewed source from your
-authorized private checkout or archive. Copy the entire
+Obtain the reviewed source from an authorized checkout or archive. Copy the entire
 `custom_components/axiell_libraries` directory, including `translations`, into
 HA's configuration directory. The resulting path must be
 `<HA config>/custom_components/axiell_libraries/manifest.json` (normally
@@ -48,7 +46,10 @@ source and restart. Manual copies do not establish Marketplace update behavior.
 
 The first screen offers nearby libraries using HA's configured latitude and
 longitude. Search filters those returned choices; it is not a global library
-name search. Select a library or **Enter LocationID manually**. If coordinates
+name search. The provider list can omit libraries even when exact lookup works.
+Names supplied by Solus are retained; otherwise the LocationID is displayed.
+See [discovery evidence and the Norwegian directory investigation](docs/library-discovery.md).
+Select a library or **Enter LocationID manually**. If coordinates
 are missing, discovery fails, or no libraries are returned, the manual screen
 opens directly. Enter the exact Solus `LocationID` supplied by your library
 (for example, `Malselv`); a display name is not necessarily its LocationID.
@@ -110,8 +111,12 @@ permits one recovery login per refresh, using the existing DeviceID.
 Do not enable or share HTTP traces containing private data. Do not put card
 numbers, PINs, tokens, cookies, account responses or DeviceIDs into chat, issues,
 logs or repository files. Do not commit APKs, captures, decompiled code or raw
-personal data. Report failures with only the generic UI error, HA/integration
-version and affected step. Strict routing and unverified response variants may
+personal data. Report failures with the UI error and its safe reference (for example,
+`bootstrap/http/403`), HA/integration version and affected step. References identify
+discovery/manual lookup, routing, bootstrap, pre-session or check-session, and
+transport, HTTP, API rejection, response schema, missing token or security errors.
+Routing/bootstrap HTTP rejection does not mean your PIN was rejected.
+Strict routing and unverified response variants may
 cause a safe provider error; [protocol assumptions](docs/protocol.md#client-implementation-contract-and-remaining-assumptions)
 describe what still needs validation.
 
@@ -135,8 +140,9 @@ network bodies or enable credential-bearing debug logging.
 
 Record only the HA/integration version and pass/fail of each step locally,
 without titles or account data. Browser rendering, an actual HA process restart,
-Marketplace install/update, and the complete live flow were **not run by the
-implementers**.
+and the complete live flow were **not run by the implementers**. The owner
+has separately reported Marketplace installation/update, with account setup
+still failing before this fix.
 
 ## Development and validation
 
@@ -180,6 +186,13 @@ for local and hosted evidence and the remaining owner-run checks.
 
 ## Maintainer releases
 
+Until a matching GitHub release is **published**, Marketplace may display a
+commit hash as the installed/update label. A published tag matching the manifest
+provides a numeric version label. The first planned version is `0.2.0`; a later
+patch could be `0.2.1` after updating the manifest in a reviewed change. Review
+[CHANGELOG.md](CHANGELOG.md) when preparing release notes. Do not publish merely
+to change the label; complete the owner-run setup check first.
+
 After review and merge to `main`, a maintainer may run **Actions → Release →
 Run workflow**, selecting `main` and version `0.2.0` (plain `X.Y.Z`, no `v`).
 The workflow runs the full reusable validation first, checks exact manifest/tag
@@ -191,8 +204,8 @@ rejected rather than moved.
 For later versions, update the integration manifest in a reviewed change and
 supply that exact version to Release after merging. If publishing fails after
 tag creation, investigate the run and repository state and recover manually;
-do not blindly rerun the workflow or move/delete a tag. Publication and any
-visibility change are separate owner actions; neither has been performed here.
+do not blindly rerun the workflow or move/delete a tag. Publication and repository
+visibility remain separate owner actions; this fix performs neither.
 This prepares direct installation, not official Marketplace catalog inclusion.
 
 - [Sanitized protocol and unresolved assumptions](docs/protocol.md)

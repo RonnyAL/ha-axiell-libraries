@@ -9,6 +9,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any
 from urllib.parse import quote, urlencode, urlsplit
 from uuid import uuid4
@@ -31,16 +32,83 @@ _BROWSER_HEADERS = {
 _SOLUS_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.sol\.us")
 
 
+_STAGES = frozenset(
+    {
+        "provider",
+        "discovery",
+        "manual_lookup",
+        "routing",
+        "bootstrap",
+        "login_presession",
+        "login_checksession",
+    }
+)
+_REASONS = frozenset(
+    {
+        "transport",
+        "http",
+        "api_rejection",
+        "response_schema",
+        "missing_token",
+        "security",
+    }
+)
+
+
 class SolusError(Exception):
-    """Safe error boundary; messages never include upstream data."""
+    """Static messages and finite diagnostic context, never upstream content."""
+
+    default_reason = "response_schema"
+
+    def __init__(self, *args: object, reason=None, status=None) -> None:
+        super().__init__(*args)
+        self.stage = "provider"
+        self.reason = reason if reason in _REASONS else self.default_reason
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+
+    def at_stage(self, stage: str) -> None:
+        """Keep the innermost known stage, including routing during discovery."""
+        if self.stage == "provider" and stage in _STAGES:
+            self.stage = stage
+
+    def reference(self, fallback: str = "provider") -> str:
+        """Validate again at the UI boundary; exception text is never rendered."""
+        stage = self.stage if self.stage in _STAGES else "provider"
+        if stage == "provider" and fallback in _STAGES:
+            stage = fallback
+        reason = self.reason if self.reason in _REASONS else "response_schema"
+        status = self.status
+        suffix = f"/{status}" if type(status) is int and 100 <= status <= 599 else ""
+        return f"{stage}/{reason}{suffix}"
+
+
+def _at_stage(stage):
+    """Annotate only expected provider errors; programming errors propagate."""
+
+    def decorate(function):
+        @wraps(function)
+        async def wrapped(*args, **kwargs):
+            try:
+                return await function(*args, **kwargs)
+            except SolusError as error:
+                error.at_stage(stage)
+                raise
+
+        return wrapped
+
+    return decorate
 
 
 class SolusConnectionError(SolusError):
     """Transport or HTTP server failure."""
 
+    default_reason = "transport"
+
 
 class SolusAuthError(SolusError):
     """Authentication was rejected or an HTTP session expired."""
+
+    default_reason = "api_rejection"
 
 
 class SolusSessionExpired(SolusAuthError):
@@ -53,6 +121,8 @@ class SolusProtocolError(SolusError):
 
 class SolusSecurityError(SolusError):
     """Unsafe destination or redirect rejected before forwarding secrets."""
+
+    default_reason = "security"
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +185,7 @@ async def _request(
     payload: dict | None = None,
     headers: dict | None = None,
     bootstrap: bool = False,
+    auth_response: bool = False,
 ) -> Any:
     """No automatic redirects, retries, raw exception messages or HTTP logging."""
     kwargs = {"allow_redirects": False, "timeout": _TIMEOUT}
@@ -126,11 +197,19 @@ async def _request(
     try:
         async with session.request(method, url, **kwargs) as response:
             if 300 <= response.status < 400:
-                raise SolusSecurityError("Solus redirect rejected") from None
-            if response.status in (401, 403):
-                raise SolusAuthError("Solus authentication required") from None
+                raise SolusSecurityError(
+                    "Solus redirect rejected", status=response.status
+                ) from None
+            if auth_response and response.status in (401, 403):
+                raise SolusAuthError(
+                    "Solus authentication required",
+                    reason="http",
+                    status=response.status,
+                ) from None
             if response.status != 200:
-                raise SolusConnectionError("Solus server unavailable") from None
+                raise SolusConnectionError(
+                    "Solus server unavailable", reason="http", status=response.status
+                ) from None
             if bootstrap:
                 await response.read()
                 return None
@@ -150,7 +229,12 @@ def _section(payload: Any, *, authentication: bool = False) -> dict:
     if not isinstance(status, str) or status.lower() != "success":
         if authentication and detail.get("status") == "failure":
             raise SolusAuthError("Solus authentication rejected") from None
-        raise SolusProtocolError("Unsuccessful Solus response") from None
+        raise SolusProtocolError(
+            "Unsuccessful Solus response",
+            reason="api_rejection"
+            if isinstance(status, str) and status.lower() in {"failure", "error"}
+            else "response_schema",
+        ) from None
     return detail
 
 
@@ -165,6 +249,7 @@ def _list_detail(section: dict, *, nonempty: bool = False) -> list[dict]:
     return detail
 
 
+@_at_stage("routing")
 async def _routing(session: aiohttp.ClientSession, app_id: str) -> tuple[str, str]:
     payload = _decode(
         await _request(
@@ -196,7 +281,12 @@ def _locator_success(response: Any) -> None:
     """Locator status is separate from the authenticated catalogue protocol."""
     status = response.get("Status") if isinstance(response, dict) else None
     if not isinstance(status, str) or status.lower() != "ok":
-        raise SolusProtocolError("Unable to discover Solus libraries") from None
+        raise SolusProtocolError(
+            "Unable to discover Solus libraries",
+            reason="api_rejection"
+            if isinstance(status, str) and status.lower() in {"failure", "error"}
+            else "response_schema",
+        ) from None
 
 
 async def _locator(session: aiohttp.ClientSession, method: str, payload: dict) -> Any:
@@ -213,6 +303,7 @@ async def _locator(session: aiohttp.ClientSession, method: str, payload: dict) -
     )
 
 
+@_at_stage("manual_lookup")
 async def async_lookup_location(
     session: aiohttp.ClientSession, location_id: str
 ) -> Library:
@@ -222,6 +313,7 @@ async def async_lookup_location(
     return await _library(session, response)
 
 
+@_at_stage("discovery")
 async def async_find_nearby(
     session: aiohttp.ClientSession, latitude: float, longitude: float
 ) -> list[Library]:
@@ -353,6 +445,7 @@ class SolusClient:
                     f"{self._server}/v4/Cat.asmx/{method}?rnd={uuid4().hex}",
                     payload=envelope,
                     headers=headers,
+                    auth_response=True,
                 ),
                 authentication=authentication,
             )
@@ -370,8 +463,10 @@ class SolusClient:
         self._token = ""
         self._session_id = _ZERO_SESSION_ID
         self._user_id = card
-        self._server, auth_server = await _routing(self._session, self._app_id)
+        stage = "routing"
         try:
+            self._server, auth_server = await _routing(self._session, self._app_id)
+            stage = "bootstrap"
             bootstrap_metadata = {
                 **self._metadata(),
                 "font": "",
@@ -396,6 +491,7 @@ class SolusClient:
                 headers=self._catalogue_headers(),
                 bootstrap=True,
             )
+            stage = "login_presession"
             pre = await self._call(
                 "LoginPreSession",
                 {
@@ -407,7 +503,17 @@ class SolusClient:
                 authentication=True,
             )
             users = _list_detail(pre, nonempty=True)
-            self._token = _text(users[0].get("AuthToken"))
+            token = users[0].get("AuthToken")
+            if (
+                token is None
+                or token == ""
+                or (isinstance(token, str) and not token.strip())
+            ):
+                raise SolusProtocolError(
+                    "Missing Solus authentication token", reason="missing_token"
+                ) from None
+            self._token = _text(token)
+            stage = "login_checksession"
             check = await self._call(
                 "LoginCheckSession",
                 {
@@ -447,6 +553,7 @@ class SolusClient:
             self._session_expired = False
             return users
         except SolusError as error:
+            error.at_stage(stage)
             self._token = ""
             self._session_id = _ZERO_SESSION_ID
             if isinstance(error, SolusAuthError):

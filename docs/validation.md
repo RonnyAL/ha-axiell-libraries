@@ -7,7 +7,103 @@ library/card, persistent DeviceID, read-only Solus access, nearby discovery and
 manual LocationID. No redesign approval was needed. All six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: public locator response correction
+## Current: authentication parity and safe setup references
+
+The owner reports successful Marketplace installation/update but failing HA
+credentialed setup. Their supplied Python PoC was live-verified through
+bootstrap, LoginPreSession, LoginCheckSession, loans and catalogue, with no
+observed processing-host change. This integration has **not** been verified
+successfully against a live account. The corrected request contract and
+remaining model/routing/schema differences are in [protocol.md](protocol.md).
+
+Task 1 (`c0e3b5f`) corrected the request/response contract. Task 2 adds only
+allowlisted setup stage/reason/validated-status references and translated HA
+placeholders. Routing/bootstrap HTTP 401/403 is a provider failure, while the
+existing explicit auth-stage rejection behavior and bounded expiry recovery
+remain. Known API rejection is distinguished from schema failure; missing
+pre-session tokens have a separate reference. Existing SolusError subclasses
+and no-argument constructors remain compatible. No raw provider message, body,
+URL, header, cookie, account/device identifier or exception text enters the
+reference. Programming failures propagate. No runtime dependency, version,
+release workflow, publication or repository visibility change was made.
+
+Task 2 files: `custom_components/axiell_libraries/{solus.py,config_flow.py,strings.json,translations/en.json,translations/nb.json}`,
+`tests/{test_config_flow.py,test_solus.py}`, `README.md`, `CHANGELOG.md`,
+`docs/{protocol.md,library-discovery.md,validation.md}` and the authentication
+parity plan completion record (including the controller's existing Task 1
+checkbox/NB-scope edits). The NB directory research is preserved with primary
+links; no XML, contact data or guessed Solus mapping was added.
+
+```text
+$ /tmp/axiell-ha202611-venv/bin/python -m pytest -q tests/test_config_flow.py -k 'real_setup_diagnostics or locator_diagnostics' --tb=short
+RED: 53 failed, 13 deselected, 5 warnings in 0.88s
+GREEN (final): 53 passed, 14 deselected, 5 warnings in 0.79s
+$ /tmp/axiell-ha202611-venv/bin/python -m pytest -q tests/test_config_flow.py tests/test_solus.py tests/test_auth_protocol.py --tb=short
+204 passed, 5 warnings in 1.66s
+$ /tmp/axiell-ha202611-venv/bin/python -m pytest -q tests/test_solus.py -k 'generic_errors or diagnostic_reference or login_failure_retains' --tb=short
+RED constructor compatibility check: 4 failed, 8 passed, 110 deselected, 5 warnings in 0.19s
+GREEN: 12 passed, 110 deselected, 5 warnings in 0.14s
+$ /tmp/axiell-ha202611-venv/bin/python -m pytest -q
+318 passed, 5 warnings in 3.69s
+$ /tmp/axiell-ha2026110-venv/bin/python -m pytest -q
+318 passed, 5 warnings in 3.53s
+$ /tmp/axiell-ha202611-venv/bin/ruff check .
+All checks passed!
+$ /tmp/axiell-ha202611-venv/bin/ruff format --check .
+34 files already formatted
+$ docker run --rm -v /home/ronny/axiell/ha-axiell-libraries:/github/workspace:ro ghcr.io/home-assistant/hassfest:latest
+Integrations: 1
+Invalid integrations: 0
+$ /tmp/axiell-ha202611-venv/bin/python scripts/check_release.py 0.2.0
+Release tag and manifest agree: 0.2.0
+$ git diff --check
+(no output, exit 0)
+```
+
+Actual versions were printed immediately before each full suite with:
+
+```text
+<venv>/bin/python -c 'import sys; from importlib.metadata import version; print(sys.version); print({name: version(name) for name in ("homeassistant", "pytest-homeassistant", "pytest", "aiohttp", "aioresponses", "ruff")})'
+2026.11.1 environment: Python 3.14.7; homeassistant 2026.11.1; pytest-homeassistant 2026.11.1
+2026.11.0 environment: Python 3.14.7; homeassistant 2026.11.0; pytest-homeassistant 2026.11.0
+Both: pytest 9.0.3; aiohttp 3.14.5; aioresponses 0.7.9; Ruff 0.17.5
+```
+
+RED failed on expected missing diagnostic placeholders and incorrect
+routing/bootstrap invalid-auth classification. During implementation, one
+intermediate run had 17 failures/36 passes because the test initially expected
+only `reference`; HA correctly adds its standard reauth `name` placeholder.
+The test now preserves/checks that framework behavior. The no-argument error
+constructor regression failed with TypeError before compatibility was restored.
+All final checks exited 0; the two intentional RED runs exited 1.
+
+All API tests remain offline. Escalation allowed HA's local event-loop sockets
+and the loopback synthetic cookie server, with the official harness network
+guard retained. The same five upstream warnings remain visible (one Core
+web.Application subclass and four backoff asyncio.iscoroutinefunction sites);
+no warning suppression was added. Real HA forms and loaded en/nb translations
+are formatted with hostile synthetic secret markers and checked for safe
+references. This tests backend rendering context, not the browser frontend.
+Retries, initial setup, reauth/reconfigure, stable DeviceID, token cleanup and
+managed-session detachment are covered. Existing cookie-present/absent,
+session-expiry recovery and partial-catalogue regressions still pass.
+
+Metadata/document checks parsed strings/en/nb JSON, compared leaf keys and
+reference placeholders, verified changed documentation's local link targets,
+and confirmed manifest `0.2.0` with empty requirements. Official hassfest also
+validated manifest/translations/config flow. Release checking only validates
+version agreement; it does not create a tag or release. Primary discovery/NB
+facts were reconciled against the supplied bounded investigations, including
+later HTTP 200 follow-ups superseding earlier HTTP 403 conclusions. No new
+external probes or live integration requests were performed in this task.
+
+Self-review checked finite output construction, innermost-stage preservation,
+HTTP classification, no credential-retry loops, identity persistence, unchanged
+Task 1 request bytes and successful/abort semantics. No remaining findings were
+identified. Remaining live API assumptions and the next owner step are in
+[Unverified behavior and handoff](#unverified-behavior-and-handoff).
+
+## Historical: public locator response correction
 
 The owner's manual LocationID failed before credential entry because discovery
 required uppercase `OK`, a `Name`, and a nearby `Status`/`Detail` wrapper.
@@ -397,25 +493,22 @@ binaries/captures. Final documentation is text and contains no owner credentials
 
 ## Unverified behavior and handoff
 
-- Public locator discovery/routing is now observed as recorded in the current
-  correction above. Serialized envelopes remain a defensive allowance; the
-  legacy nearby `Detail` wrapper is tested offline. Search only filters returned choices.
-- Bootstrap descriptors (`Home Assistant`, platform version `1`, font `100`),
-  the metadata/AuthToken LoginCheckSession request and optional repo `AuthServer`
-  need confirmation. The observed app version/build/package are retained.
-- Exact upstream negative-auth and JSON session-expiry codes are unknown.
-  HTTP 401/403 has explicit behavior; unknown JSON status fails as a provider
-  error without speculative retry loops. Actual cookie issuance is untested.
-- Dynamic origins accept only root HTTPS single-label `*.sol.us` hosts without
-  credentials, explicit port, query or fragment. Redirects are blocked.
-  `ServerToUse` must equal the trusted repo's resolved processing origin. This
-  may reject an otherwise valid new provider route until independently verified.
-- Current compatibility is verified only for Core 2026.11.0 and 2026.11.1.
-  Browser testing, actual process restart, Marketplace install/update and live
-  complete-integration success are unverified. Reload/reauth identity is tested
-  offline. The earlier owner's protocol probe is separate evidence.
+The current authentication/diagnostics evidence above supersedes earlier client
+metadata and case-sensitive-success statements in the historical task records.
+Remaining live assumptions are the generic `PlatModel: Home Assistant` label,
+optional repo `AuthServer`, actual negative-auth/JSON-expiry codes, upstream
+cookie requirements, and the strict single-label HTTPS Solus same-origin policy.
+A live processing-host switch was not observed in the owner's successful PoC.
 
-Next: the owner may optionally use the
-[local HA UI smoke test](../README.md#optional-owner-run-live-smoke-test), entering
-card/PIN in HA only. Keep credentials, traces and account data out of chat,
-issues, logs and files, and keep this repository private.
+Compatibility is tested only on Core 2026.11.0/2026.11.1. The owner reports
+Marketplace installation/update, but HA credentialed setup still fails before
+this fix. Browser rendering, an actual HA process restart and successful live
+integration setup remain owner-run checks. Offline translated form rendering,
+reload, reauth/reconfigure and cookie presence/absence are covered separately.
+
+Next: install the reviewed fix, restart HA, run the
+[local HA UI smoke test](../README.md#optional-owner-run-live-smoke-test) and
+report only the UI error/reference, HA/integration version and failed step if
+setup fails. Enter credentials in HA only; retain the existing entry/DeviceID
+for PIN changes. Do not record or share HTTP bodies or account data. Publication,
+version changes and any future directory mapping remain separate owner decisions.

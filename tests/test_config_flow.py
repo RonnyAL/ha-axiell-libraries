@@ -360,3 +360,241 @@ async def test_probe_responses_create_entry_after_retry_with_one_device(hass):
             for row in rows
         ]
         assert [row.kwargs["json"]["DeviceID"] for row in pre] == [DEVICE, DEVICE]
+
+
+@pytest.mark.parametrize("source", [SOURCE_USER, SOURCE_REAUTH, SOURCE_RECONFIGURE])
+@pytest.mark.parametrize(
+    "stage,kind,reference,error_key",
+    [
+        ("routing", "http", "routing/http/403", "cannot_connect"),
+        ("bootstrap", "http", "bootstrap/http/403", "cannot_connect"),
+        ("login_presession", "http", "login_presession/http/403", "invalid_auth"),
+        ("login_checksession", "http", "login_checksession/http/403", "invalid_auth"),
+        ("routing", "transport", "routing/transport", "cannot_connect"),
+        ("bootstrap", "transport", "bootstrap/transport", "cannot_connect"),
+        (
+            "login_presession",
+            "transport",
+            "login_presession/transport",
+            "cannot_connect",
+        ),
+        (
+            "login_checksession",
+            "transport",
+            "login_checksession/transport",
+            "cannot_connect",
+        ),
+        ("routing", "schema", "routing/response_schema", "cannot_connect"),
+        (
+            "login_presession",
+            "schema",
+            "login_presession/response_schema",
+            "cannot_connect",
+        ),
+        (
+            "login_checksession",
+            "schema",
+            "login_checksession/response_schema",
+            "cannot_connect",
+        ),
+        ("login_presession", "api", "login_presession/api_rejection", "invalid_auth"),
+        (
+            "login_checksession",
+            "api",
+            "login_checksession/api_rejection",
+            "invalid_auth",
+        ),
+        (
+            "login_presession",
+            "unknown_api",
+            "login_presession/api_rejection",
+            "cannot_connect",
+        ),
+        (
+            "login_presession",
+            "token",
+            "login_presession/missing_token",
+            "cannot_connect",
+        ),
+        ("routing", "security", "routing/security", "cannot_connect"),
+        (
+            "login_checksession",
+            "security",
+            "login_checksession/security",
+            "cannot_connect",
+        ),
+    ],
+)
+async def test_real_setup_diagnostics_and_retry_preserve_identity(
+    hass, source, stage, kind, reference, error_key, caplog
+):
+    """Wrong failure stage/classification or raw provider text breaks UI reporting."""
+    from homeassistant.helpers.aiohttp_client import async_create_clientsession
+    from homeassistant.helpers.translation import async_get_translations
+
+    from tests.test_solus import endpoint, fixture, login
+
+    sessions = []
+
+    def managed_session(*args, **kwargs):
+        session = async_create_clientsession(*args, **kwargs)
+        sessions.append(session)
+        return session
+
+    secret = f"{CARD} {PIN} {DEVICE} TEST_TOKEN TEST_COOKIE https://private.example/"
+    if kind == "http":
+        response = {"status": 403, "body": secret}
+    elif kind == "transport":
+        response = {"exception": TimeoutError(secret)}
+    elif kind == "schema":
+        response = {"body": secret}
+    elif kind in ("api", "unknown_api"):
+        response = {
+            "payload": {
+                "d": {
+                    "status": "failure" if kind == "api" else "error",
+                    "statusmessage": secret,
+                }
+            }
+        }
+    elif kind == "token":
+        response = {
+            "payload": {
+                "d": {
+                    "status": "success",
+                    "Detail": [{"UserID": CARD, "AuthToken": ""}],
+                }
+            }
+        }
+    elif stage == "routing":
+        response = {"payload": {"Server": "https://private.example/"}}
+    else:
+        response = {
+            "payload": {
+                "d": {
+                    "status": "success",
+                    "Detail2": {"ServerToUse": "https://private.example/"},
+                }
+            }
+        }
+    with (
+        aioresponses() as mock,
+        patch(
+            "custom_components.axiell_libraries.config_flow.async_create_clientsession",
+            side_effect=managed_session,
+        ),
+        patch("secrets.token_hex", return_value=DEVICE) as token_hex,
+        patch(
+            "custom_components.axiell_libraries.solus.async_find_nearby",
+            return_value=[LIBRARY],
+        ),
+        patch(
+            "custom_components.axiell_libraries.async_setup_entry", return_value=True
+        ),
+    ):
+        if source == SOURCE_USER:
+            result = await credentials(hass, await start(hass))
+            submission = {"card": CARD, "pin": PIN}
+        else:
+            entry = MockConfigEntry(
+                domain=DOMAIN, data=entry_data(), unique_id="fixed-account"
+            )
+            entry.add_to_hass(hass)
+            result = await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": source, "entry_id": entry.entry_id},
+                data=entry.data if source == SOURCE_REAUTH else None,
+            )
+            submission = {"pin": PIN}
+        repo = "https://repo.sol.us/id/TEST-APP/2026.42"
+        auth = re.compile(r"https://process-test.sol.us/v4/Auth.aspx\?s=.+")
+        if stage == "routing":
+            mock.get(repo, **response)
+        else:
+            mock.get(repo, payload={"Server": LIBRARY.server_url})
+            if stage == "bootstrap":
+                mock.get(auth, **response)
+            else:
+                mock.get(auth, body="")
+                if stage == "login_presession":
+                    mock.post(endpoint("LoginPreSession"), **response)
+                else:
+                    mock.post(
+                        endpoint("LoginPreSession"),
+                        payload=fixture("login_presession_success.json"),
+                    )
+                    mock.post(endpoint("LoginCheckSession"), **response)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], submission
+        )
+        assert result["errors"] == {"base": error_key}
+        assert result["description_placeholders"]["reference"] == reference
+        assert set(result["description_placeholders"]) <= {"reference", "name"}
+        for language in ("en", "nb"):
+            translations = await async_get_translations(
+                hass, language, "config", {DOMAIN}
+            )
+            message = translations[
+                f"component.{DOMAIN}.config.error.{error_key}"
+            ].format(**result["description_placeholders"])
+            assert reference in message
+            assert all(marker not in message + caplog.text for marker in secret.split())
+        assert sessions and all(session.closed for session in sessions)
+        login(mock)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], submission
+        )
+        if source == SOURCE_USER:
+            assert result["type"] is FlowResultType.CREATE_ENTRY
+            assert result["data"]["device_id"] == DEVICE
+            token_hex.assert_called_once_with(8)
+        else:
+            assert result["reason"] == f"{source}_successful"
+            assert entry.data["device_id"] == DEVICE
+            token_hex.assert_not_called()
+        assert all(session.closed for session in sessions)
+        requests = [
+            call
+            for key, calls in mock.requests.items()
+            if "LoginPreSession" in str(key[1])
+            for call in calls
+        ]
+        assert all(call.kwargs["json"]["DeviceID"] == DEVICE for call in requests)
+
+
+@pytest.mark.parametrize("operation", ["discovery", "manual_lookup"])
+async def test_locator_diagnostics_are_not_credential_errors(hass, operation, caplog):
+    """Anonymous locator rejection must retain a safe location-stage reference."""
+    from tests.test_solus import locator_endpoint
+
+    with aioresponses() as mock:
+        if operation == "manual_lookup":
+            hass.config.latitude = hass.config.longitude = None
+            result = await start(hass)
+        method = "FindWithLocation" if operation == "discovery" else "QueryWithID"
+        mock.post(
+            locator_endpoint(method),
+            payload={"d": {"Status": "failure", "statusmessage": PIN}},
+        )
+        if operation == "discovery":
+            result = await start(hass)
+        else:
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"location_id": "Test"}
+            )
+        assert result["step_id"] == "library_manual"
+        assert result["errors"] == {"base": "cannot_connect"}
+        assert result["description_placeholders"] == {
+            "reference": f"{operation}/api_rejection"
+        }
+        assert PIN not in caplog.text
+
+
+async def test_programming_errors_are_not_provider_diagnostics(hass, api):
+    """An unexpected implementation failure must not be mislabeled as Solus."""
+    result = await credentials(hass, await start(hass))
+    flow = hass.config_entries.flow._progress[result["flow_id"]]
+    api[2].side_effect = RuntimeError("synthetic programming failure")
+    with pytest.raises(RuntimeError, match="synthetic programming failure"):
+        await flow._validate(entry_data())
+    assert api[2].call_args.args[0]._session.closed

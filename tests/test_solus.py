@@ -810,3 +810,53 @@ async def test_transient_recovery_failure_preserves_expiry_for_next_poll():
                 await api.async_login(CARD, PIN)
             with pytest.raises(SolusSessionExpired):
                 await api.async_get_loans(CARD)
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [SolusConnectionError, SolusAuthError, SolusProtocolError, SolusSecurityError],
+)
+def test_generic_errors_keep_exception_constructor_compatibility(error_type):
+    """Adding context must not require callers to supply an exception message."""
+    error = error_type()
+    assert isinstance(error, Exception)
+    assert error.args == ()
+    assert error.reference().startswith("provider/")
+
+
+@pytest.mark.parametrize("status", [True, "403", "TEST_PRIVATE", -1, 600, None, 403])
+def test_diagnostic_reference_revalidates_allowlisted_context(status):
+    """Injected provider fields must not become diagnostic references."""
+    error = SolusProtocolError(PIN, reason="TEST_PRIVATE", status=status)
+    error.stage = "https://private.example/"
+    error.reason = TOKEN
+    assert error.reference("manual_lookup") == (
+        "manual_lookup/response_schema/403"
+        if type(status) is int and status == 403
+        else "manual_lookup/response_schema"
+    )
+
+
+@pytest.mark.asyncio
+async def test_login_failure_retains_stage_and_clears_transient_token(caplog):
+    """A failed check-session must not retain its pre-session token or session."""
+    with aioresponses() as mock:
+        bootstrap(mock)
+        mock.post(
+            endpoint("LoginPreSession"),
+            payload=fixture("login_presession_success.json"),
+        )
+        mock.post(
+            endpoint("LoginCheckSession"),
+            payload={"d": {"status": "error", "statusmessage": TOKEN}},
+        )
+        async with aiohttp.ClientSession() as session:
+            api = client(session)
+            with pytest.raises(SolusProtocolError) as caught:
+                await api.async_login(CARD, PIN)
+            assert caught.value.reference() == "login_checksession/api_rejection"
+            assert not api._token
+            assert not api._authenticated
+            assert api._session_id == "00000000-0000-0000-0000-000000000000"
+            assert api._device_id == DEVICE
+    assert TOKEN not in str(caught.value) + caplog.text
