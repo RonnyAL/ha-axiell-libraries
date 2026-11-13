@@ -19,7 +19,10 @@
         "Overdue": false,
         "Source": "ILS",
         "imageUrl": "",
-        "ISBN": ""
+        "ISBN": "",
+        "itemID": "SYNTHETIC-COPY-1",
+        "RenewalCount": 0,
+        "OverdueSpecified": true
       },
       {
         "recordID": "00000000-0000-4000-8000-000000000002",
@@ -35,7 +38,10 @@
         "Overdue": false,
         "Source": "ILS",
         "imageUrl": "",
-        "ISBN": ""
+        "ISBN": "",
+        "itemID": "SYNTHETIC-COPY-2",
+        "RenewalCount": 1,
+        "OverdueSpecified": true
       }
     ],
     "Detail2": null

@@ -75,10 +75,17 @@ Response has outer `d` envelope; `d.status` is `success`, `d.Detail[0].AuthToken
 
 ## Useful loan fields
 
-- `loanID` for unique loan identity; `recordID` for catalog metadata; `title`.
+- `loanID` for unique loan identity; `recordID` for catalog metadata; optional
+  string `itemID` for the issued copy; `title` and separate `subtitle`.
 - `dueObject`: `/Date(1795046400000)/` => `2026-11-19` date; prefer over `dueDisplay` (which contains `19.11.2026<br />Library`).
-- `canRenew` and `Overdue` (booleans), `renewalCost`, `RenewalsRemaining` (`-1` = unknown), `Source` (e.g., `ILS`).
-- `author` may be empty; `subtitle` sometimes contains author. Prefer `RecordGet.Author`.
+- `canRenew` and `Overdue` (booleans), optional boolean `OverdueSpecified`,
+  `RenewalCount`, `RenewalsRemaining`, `renewalCost`, `Source` (e.g., `ILS`).
+  Counts must be nonnegative integers; negative values (including `-1`), booleans
+  and malformed values mean unknown. Cost is a finite nonnegative integer/float,
+  never a boolean; no currency is inferred.
+- `author` may be empty. Prefer nonempty `RecordGet.Author`, then explicit
+  `LoansGet.author`, then unknown. Never infer an author from `subtitle`, which
+  can name a series.
 - `imageUrl` fields in `LoansGet` may be empty, as may `ISBN`.
 
 ### Date parser semantics
@@ -94,12 +101,41 @@ minutes `00`–`59`. The suffix is validated but not applied to the UTC instant.
 For example, `/Date(1795046400000-1200)/` still yields `2026-11-19`.
 Suffix handling is a defensive parser choice, not a live-verified server variant.
 
-Loan authors use nonempty `author`, then `subtitle`, as a fallback. Catalogue
-enrichment replaces that fallback with a nonempty `RecordGet.Author`, while
-missing catalogue fields leave available loan metadata intact. Direct `ImageUrl`
-is preferred, with `ImageUrlLarge` as fallback. Empty or malformed covers,
-non-HTTPS URLs, embedded credentials, and `ItemImage.aspx` placeholders are
-discarded. `MainMetadata` is retained as optional string key/value metadata.
+Catalogue enrichment replaces an explicit loan author with a nonempty
+`RecordGet.Author`, while missing catalogue fields keep available loan metadata.
+`LoansGet` remains authoritative for title, IDs, membership, due date and current
+circulation state even when several loans share one catalogue record. Direct
+HTTPS `ImageUrlLarge` is preferred, then `ImageUrl`, then a valid loan cover.
+Empty or malformed covers, invalid ports, whitespace/control/backslash
+characters, non-HTTPS URLs, embedded credentials, and `ItemImage.aspx`
+placeholders are discarded. Covers are never fetched, probed or proxied by the
+integration; missing or unavailable covers cannot break a refresh.
+
+Models preserve selected original scalar API fields in immutable `api_fields`
+mappings, internally only. Loan keys are `loanID`, `recordID`, `itemID`, `title`,
+`author`, `subtitle`, `dueObject`, `canRenew`, `renewalCost`, `RenewalCount`,
+`RenewalsRemaining`, `OverdueSpecified`, `Overdue`, `Source`, `ISBN`, `imageUrl`,
+`description`. Catalogue keys are `RecordID`, `Title`, `Author`, `ISBN`,
+`Description`, `Format`, `ImageUrl`, `ImageUrlLarge`. Unknown fields, nested
+objects, `dueDisplay`, and credentials are never retained in those mappings.
+`MainMetadata` is separately preserved as an immutable string key/value mapping.
+
+The loan's `publisher`, `publication_year`, `language` and `subjects` properties
+recognize case-insensitive Norwegian/English labels: `Utgiver`/`Publisher`,
+`Utgitt`/`Year`/`Publication year`, `Språk`/`Language`, and
+`Emne`/`Emner`/`Subject`/`Subjects`. Values stay strings; subjects are never split
+and publication values are never interpreted as dates. Unknown or malformed
+labels/values cannot enter exported metadata. `Språk` appeared in owner-supplied
+metadata; other aliases are defensive support, not proof of every provider schema.
+
+`Loan.as_dict()` has exactly these public keys: `loan_id`, `record_id`, `item_id`,
+`title`, `subtitle`, `author`, `due_date`, `overdue`, `overdue_specified`,
+`can_renew`, `renewal_count`, `renewals_remaining`, `renewal_cost`, `source`,
+`isbn`, `image_url`, `description`, `format`, `publisher`, `publication_year`,
+`language`, `subjects`, `main_metadata`. Dates serialize to ISO strings only at
+this boundary; optional values are null. `main_metadata` is a fresh dictionary
+containing only recognized bibliographic labels under the provider's original
+keys. Internal originals and arbitrary unknown metadata are never exported.
 
 ## Useful RecordGet fields
 
@@ -165,7 +201,8 @@ request contract is now covered at the offline HTTP boundary:
   `AppVersion: 2026.42`, `AppBuild: 2026420500`, `PackageName: solus.AllAxiell`,
   `PlatType: Android`, `PlatVer: 17`, `DName: Android`, `Locale: nb-NO`.
   HA uses `PlatModel: Home Assistant`; this generic label differs from the
-  owner's physical-device label and remains unverified live.
+  owner's physical-device label. The owner subsequently confirmed successful
+  integration authentication for their account.
 - Bootstrap adds `font: ""` and `ServerRoot` with trailing slash. Its `s` query
   contains normal Base64 of compact UTF-8 JSON with non-ASCII text preserved,
   then normal URL query escaping. Initial session ID is
@@ -188,8 +225,9 @@ request contract is now covered at the offline HTTP boundary:
 This corrects the earlier empty session ID, card-valued check-session outer
 UserID, reused bootstrap metadata, omitted browser headers/full Referer,
 different platform values and required fresh check-session users. Which mismatch
-caused the owner's failure remains unknown until the corrected integration is
-run locally. Remaining deliberate differences include the generic model label,
+caused the owner's earlier failure remains unknown. The owner subsequently
+confirmed working integration authentication. Deliberate differences still
+include the generic model label,
 strict same-processing-origin routing, blocked redirects and response validation
 that rejects malformed supplied fields rather than accepting them permissively.
 Cookie absence is nonfatal; real isolated aiohttp cookie transport is tested
@@ -279,11 +317,13 @@ a usable record ID/source skip enrichment. Optional returned `Source`, when
 present, must match the requested source, and `RecordID` must always match.
 
 Catalogue `Format` and string `MainMetadata` values reach the enriched loan.
-Publisher/year values remain in an immutable mapping under the provider's keys
-(`Utgiver` and `Utgitt` in the synthetic Norwegian fixture); no universal localized
-publisher/year key scheme is assumed. These cache, concurrency, retry, and
+The immutable internal mapping keeps the provider's keys; public export filters
+it to the recognized bibliographic labels listed above. The synthetic Norwegian
+fixture includes `Utgiver`, `Utgitt` and `Språk`; no universal localized schema
+is assumed. These cache, concurrency, retry, and
 optional source-validation policies are implementation choices verified offline,
-not new claims about upstream API behavior. No live account test was performed.
+not new claims about upstream API behavior. No credentialed request was made
+during this metadata implementation.
 
 When an authenticated HTTP 401/403 invalidates the client session, later queued
 data requests retain `SolusSessionExpired` without sending another HTTP request.
@@ -301,15 +341,18 @@ read-only design. Offline tests now run against HA 2026.11.0 and 2026.11.1
 with Python 3.14.7 locally and 3.14.10 in CI, including real HA flow, entity,
 reload and session lifecycle APIs. They do not establish compatibility beyond
 those versions, browser rendering, a separate HA process restart, upstream
-cookie issuance, or a successful live integration login. The owner separately
-reports Marketplace installation/update, but HA account setup still fails. Earlier
-owner-verified endpoint observations must not be conflated with those checks.
+cookie issuance, or new loan-detail browser rendering. The owner now reports
+successful live Home Assistant authentication and all three aggregate sensors.
+That owner-run confirmation does not establish the new individual loan metadata,
+cover rendering or structured attribute behavior. Earlier endpoint observations
+must not be conflated with those new UI checks.
 
 Anonymous public discovery and repo routing were checked on 2026-11-13 as
-described above. Before relying on live account operation, the owner must check
-acceptance of the generic `Home Assistant` model label, optional repo `AuthServer`,
-JSON auth rejection/expiry codes, and the strict single-label `*.sol.us`
-same-processing-origin routing policy. No credentialed integration requests
+described above. The successful owner-run login confirms the deployed
+authentication path for that account. Optional repo `AuthServer`, JSON auth
+rejection/expiry codes, and
+unseen routing variants remain assumptions; new individual loan UI/cover
+behavior still needs an owner-run check. No credentialed integration requests
 were made during implementation. Use the [README's HA UI smoke test](../README.md#optional-owner-run-live-smoke-test)
 without exposing credentials or recording HTTP bodies. The
 [validation ledger](validation.md) records task evidence and remaining review.

@@ -22,6 +22,10 @@
         {
           "Key": "Utgitt",
           "Value": "2026"
+        },
+        {
+          "Key": "Språk",
+          "Value": "Norsk"
         }
       ]
     }

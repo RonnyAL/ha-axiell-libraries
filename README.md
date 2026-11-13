@@ -6,18 +6,19 @@ its own Home Assistant config entry, persistent DeviceID, session and entities.
 
 This uses an **unofficial, reverse-engineered API**. The complete offline suite
 passes on Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
-Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.2.0** is
+Python **3.14.7 locally / 3.14.10 in CI**. Integration version **0.3.0** is
 prepared but unpublished.
-The owner reports Marketplace installation/update succeeded, but credentialed
-setup in HA still fails. The owner's live Python probe verified authentication
-and loan/catalogue endpoints; successful live integration setup remains
-unverified. See [validation evidence](docs/validation.md).
+The owner confirms live Home Assistant authentication, all three aggregate
+sensors, and Marketplace installation/update. New structured loan attributes
+and dashboard templates have offline coverage; browser rendering and covers
+still need an owner-run check. See [validation evidence](docs/validation.md).
 
 ## Install through Marketplace
 
-The owner has exercised Marketplace installation/update. Successful account
-setup still needs an owner-run check after installing this fix and restarting HA.
-The first planned published version remains `0.2.0`.
+The owner has exercised Marketplace installation/update and account setup.
+Check the new loan details after installing this change and restarting HA.
+The first planned published release is `v0.3.0` (numeric manifest `0.3.0`).
+Until it is published and installed, Marketplace may retain a commit label.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
    **Settings → Marketplace → Add from link** and enter
@@ -75,11 +76,15 @@ IDs and due dates even when titles match. The date sensor uses the earliest
 known due date, including overdue loans, and is unknown when none is known.
 Overdue count uses the provider's flags. Missing dates remain unknown.
 
-Available author, ISBN, description, format and publisher/year metadata appear
-in item descriptions. Optional direct cover links come from `RecordGet`; missing
-covers stay absent. The integration does not proxy images. Opening a cover link
-contacts its provider from your browser. See the [UI guide](docs/home-assistant-ui.md)
-for details and `todo.get_items` use.
+**Active loans** exposes a structured `loans` attribute with one dictionary per
+issued copy: title, separate subtitle and author, due date, circulation status
+and optional catalogue details. Recorder excludes this rich attribute while
+retaining normal count history. The [UI guide](docs/home-assistant-ui.md) provides
+a standard Markdown card, filters and `todo.get_items` action example.
+To-do descriptions also carry these details; their visibility depends on the
+frontend view. Direct covers are optional and loaded by your browser from the
+provider; title/due text remains readable when an image fails. The integration
+does not download or proxy images.
 
 Loans poll every **six hours**; catalogue records have a per-entry **24-hour**
 cache, bounded to 256 records. At most four catalogue requests run concurrently.
@@ -139,10 +144,10 @@ network bodies or enable credential-bearing debug logging.
    repeated bad PINs or force upstream expiry.
 
 Record only the HA/integration version and pass/fail of each step locally,
-without titles or account data. Browser rendering, an actual HA process restart,
-and the complete live flow were **not run by the implementers**. The owner
-has separately reported Marketplace installation/update, with account setup
-still failing before this fix.
+without titles or account data. The owner has verified live authentication,
+aggregate sensors, and Marketplace installation/update. The implementers use
+offline synthetic tests; new dashboard rendering/covers, an actual HA process
+restart and the remaining lifecycle smoke checks need owner-run verification.
 
 ## Development and validation
 
@@ -167,7 +172,7 @@ python3.14 -m venv /tmp/axiell-dev-2026110
 
 docker run --rm -v "$PWD:/github/workspace:ro" ghcr.io/home-assistant/hassfest:latest
 actionlint
-/tmp/axiell-dev-2026111/bin/python scripts/check_release.py 0.2.0
+/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.3.0
 git diff --check
 ```
 
@@ -186,27 +191,28 @@ for local and hosted evidence and the remaining owner-run checks.
 
 ## Maintainer releases
 
-Until a matching GitHub release is **published**, Marketplace may display a
-commit hash as the installed/update label. A published tag matching the manifest
-provides a numeric version label. The first planned version is `0.2.0`; a later
-patch could be `0.2.1` after updating the manifest in a reviewed change. Review
-[CHANGELOG.md](CHANGELOG.md) when preparing release notes. Do not publish merely
-to change the label; complete the owner-run setup check first.
+The original commit-hash label came from having no **published GitHub Release**,
+despite a numeric manifest. A tag alone does not change Marketplace's release
+source. Prepare manifest `0.3.0`, Git tag `v0.3.0` and release title `0.3.0`;
+installed Marketplace code normalizes the prefix for version comparison while
+using the actual `v0.3.0` tag for its source archive. The old label can remain
+until publication and installation. Direct-link update checks require a GitHub
+connection and can take up to the documented 48-hour interval.
 
-After review and merge to `main`, a maintainer may run **Actions → Release →
-Run workflow**, selecting `main` and version `0.2.0` (plain `X.Y.Z`, no `v`).
-The workflow runs the full reusable validation first, checks exact manifest/tag
-agreement, atomically creates a new tag at the validated dispatch commit, then
-publishes a GitHub source release with generated notes. No attached ZIP is
-required. Feature-branch dispatches cannot publish, and existing tags are
-rejected rather than moved.
+After feature review, the remaining owner-run browser checks, publication
+approval and merge to `main`, a maintainer may dispatch **Actions → Release**
+with numeric input `0.3.0`. The workflow runs full reusable validation, checks
+tag/manifest agreement and nonempty reviewed notes, atomically creates an
+immutable tag at the validated dispatch SHA, then publishes those notes. Only
+`main` can publish; existing tags are refused. No attached ZIP is required.
 
-For later versions, update the integration manifest in a reviewed change and
-supply that exact version to Release after merging. If publishing fails after
-tag creation, investigate the run and repository state and recover manually;
-do not blindly rerun the workflow or move/delete a tag. Publication and repository
-visibility remain separate owner actions; this fix performs neither.
-This prepares direct installation, not official Marketplace catalog inclusion.
+The owner's publication hold remains active. This change publishes no release,
+creates no tag and changes no repository visibility. See
+[release preparation and failure recovery](docs/releases.md) and the
+[0.3.0 notes](docs/releases/0.3.0.md). If publishing fails after tag creation,
+inspect the validated SHA and repository state before authorized recovery;
+never blindly rerun or move/delete the tag. This prepares direct installation,
+not official Marketplace catalog inclusion.
 
 - [Sanitized protocol and unresolved assumptions](docs/protocol.md)
 - [Synthetic fixtures](tests/fixtures/)

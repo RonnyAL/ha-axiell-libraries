@@ -6,7 +6,7 @@ on:
       version:
         description: Manifest version to publish (plain X.Y.Z, no v prefix)
         required: true
-        default: "0.2.0"
+        default: "0.3.0"
         type: string
 
 permissions: {}
@@ -37,15 +37,24 @@ jobs:
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.14"
-      - name: Require exact manifest and tag agreement
-        run: python scripts/check_release.py "$RELEASE_VERSION"
       - name: Create tag and publish source release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          RELEASE_TAG="v${RELEASE_VERSION}"
+          python scripts/check_release.py "$RELEASE_TAG"
+          NOTES_FILE="docs/releases/${RELEASE_VERSION}.md"
+          if [[ ! -s "$NOTES_FILE" ]]; then
+            echo "Reviewed release notes are required."
+            exit 1
+          fi
+          if [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Release commit must be a full validated SHA."
+            exit 1
+          fi
           # Creating the ref atomically refuses an existing tag, including one
           # pointing at a different commit. Never move a published version.
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/${RELEASE_VERSION}" -f sha="$GITHUB_SHA"
-          gh release create "$RELEASE_VERSION" --verify-tag \
-            --title "$RELEASE_VERSION" --generate-notes
+            -f ref="refs/tags/${RELEASE_TAG}" -f sha="$GITHUB_SHA"
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "$RELEASE_VERSION" --notes-file "$NOTES_FILE"

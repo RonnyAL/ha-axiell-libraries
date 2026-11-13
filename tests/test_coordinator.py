@@ -41,7 +41,7 @@ def loan(record="record-a", loan_id="loan-a", source="ILS", **updates):
         "loanID": loan_id,
         "Source": source,
         "title": "Example book",
-        "subtitle": "Fallback author",
+        "subtitle": "Example series",
         "dueObject": "/Date(1795046400000)/",
         "canRenew": True,
         "Overdue": False,
@@ -296,7 +296,7 @@ async def test_partial_catalogue_failure_keeps_all_loans(setup_coordinator):
     await coordinator.async_config_entry_first_refresh()
     assert [item.author for item in coordinator.data.loans] == [
         "Catalogue author",
-        "Fallback author",
+        None,
     ]
     assert coordinator.last_update_success
 
@@ -308,7 +308,7 @@ async def test_missing_or_mismatched_catalogue_is_ignored(setup_coordinator, met
     coordinator, _, client = setup_coordinator
     client.async_get_record.return_value = metadata
     await coordinator.async_config_entry_first_refresh()
-    assert coordinator.data.loans[0].author == "Fallback author"
+    assert coordinator.data.loans[0].author is None
     assert coordinator.data.loans[0].image_url is None
 
 
@@ -549,3 +549,175 @@ async def test_real_client_recovers_expiry_with_queued_catalogue_requests(
     assert active == 0
     assert devices and set(devices) == {DEVICE}
     assert entry.data["device_id"] == DEVICE
+
+
+async def test_cached_record_preserves_each_copys_current_circulation(
+    setup_coordinator,
+):
+    coordinator, _, client = setup_coordinator
+    client.async_get_record.return_value = record(
+        Title="Catalogue title",
+        MainMetadata=[{"Key": "Publisher", "Value": "Cached Press"}],
+    )
+    client.async_get_loans.return_value = [
+        loan(itemID="copy-a", RenewalCount=0, OverdueSpecified=True),
+        loan(
+            loan_id="loan-b",
+            itemID="copy-b",
+            title="Second loan title",
+            dueObject="/Date(1795651200000)/",
+            canRenew=False,
+            Overdue=True,
+            RenewalCount=2,
+            OverdueSpecified=False,
+        ),
+    ]
+    await coordinator.async_config_entry_first_refresh()
+    first, second = coordinator.data.loans
+    assert (
+        first.loan_id,
+        first.item_id,
+        first.title,
+        first.due_date,
+        first.can_renew,
+        first.overdue,
+        first.renewal_count,
+        first.overdue_specified,
+    ) == (
+        "loan-a",
+        "copy-a",
+        "Example book",
+        date(2026, 11, 19),
+        True,
+        False,
+        0,
+        True,
+    )
+    assert (
+        second.loan_id,
+        second.item_id,
+        second.title,
+        second.due_date,
+        second.can_renew,
+        second.overdue,
+        second.renewal_count,
+        second.overdue_specified,
+    ) == (
+        "loan-b",
+        "copy-b",
+        "Second loan title",
+        date(2026, 11, 26),
+        False,
+        True,
+        2,
+        False,
+    )
+    assert first.publisher == second.publisher == "Cached Press"
+    client.async_get_record.assert_awaited_once_with("record-a", "ILS")
+
+    client.async_get_loans.return_value = [
+        loan(
+            itemID="copy-a",
+            dueObject="/Date(1795651200000)/",
+            canRenew=False,
+            Overdue=True,
+            RenewalCount=1,
+            RenewalsRemaining=0,
+            renewalCost=1.5,
+        ),
+    ]
+    await coordinator.async_refresh()
+    assert len(coordinator.data.loans) == 1  # Returned loan-b disappears.
+    renewed = coordinator.data.loans[0]
+    assert renewed.loan_id == "loan-a"
+    assert renewed.due_date == date(2026, 11, 26)
+    assert renewed.can_renew is False
+    assert renewed.overdue is True
+    assert renewed.renewal_count == 1
+    assert renewed.renewals_remaining == 0
+    assert renewed.renewal_cost == 1.5
+    assert renewed.publisher == "Cached Press"
+    client.async_get_record.assert_awaited_once_with("record-a", "ILS")
+
+    client.async_get_loans.return_value.append(loan("record-b", "loan-c"))
+    client.async_get_record.return_value = record(
+        "record-b", Author="New record author"
+    )
+    await coordinator.async_refresh()
+    assert [item.author for item in coordinator.data.loans] == [
+        "Catalogue author",
+        "New record author",
+    ]
+    assert client.async_get_record.await_args.args == ("record-b", "ILS")
+    assert client.async_get_record.await_count == 2
+
+
+async def test_partial_failure_and_stale_retry_preserve_bibliographic_data(
+    setup_coordinator, freezer
+):
+    coordinator, _, client = setup_coordinator
+    freezer.move_to(NOW)
+    client.async_get_record.return_value = record(
+        MainMetadata=[{"Key": "Språk", "Value": "Norsk"}]
+    )
+    await coordinator.async_config_entry_first_refresh()
+    freezer.tick(timedelta(hours=24))
+    client.async_get_loans.return_value = [loan(), loan("record-b", "loan-b")]
+    client.async_get_record.side_effect = SolusConnectionError("unavailable")
+    await coordinator.async_refresh()
+    first, second = coordinator.data.loans
+    assert first.language == "Norsk"
+    assert second.language is None
+    assert second.author is None
+    assert second.subtitle == "Example series"
+    assert coordinator.last_update_success
+    assert client.async_get_record.await_count == 3
+    client.async_get_record.side_effect = [
+        record(MainMetadata=[{"Key": "Language", "Value": "English"}]),
+        record("record-b", MainMetadata=[{"Key": "Publisher", "Value": "New Press"}]),
+    ]
+    await coordinator.async_refresh()
+    first, second = coordinator.data.loans
+    assert first.language == "English"
+    assert second.publisher == "New Press"
+    assert client.async_get_record.await_count == 5
+
+
+async def test_bibliographic_metadata_and_circulation_are_entry_local(
+    setup_coordinator, hass
+):
+    coordinator, entry, client = setup_coordinator
+    client.async_get_record.return_value = record(
+        MainMetadata=[{"Key": "Publisher", "Value": "First Press"}]
+    )
+    await coordinator.async_config_entry_first_refresh()
+    other_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**entry.data, "card": "TEST-OTHER-CARD", "device_id": "fedcba9876543210"},
+    )
+    other_entry.add_to_hass(hass)
+    other_entry._async_set_state(hass, ConfigEntryState.SETUP_IN_PROGRESS, None)
+    other_client = Mock(
+        async_login=AsyncMock(return_value=[{}]),
+        async_get_loans=AsyncMock(
+            return_value=[loan(dueObject="/Date(1795651200000)/", canRenew=False)]
+        ),
+        async_get_record=AsyncMock(
+            return_value=record(
+                MainMetadata=[{"Key": "Publisher", "Value": "Second Press"}]
+            )
+        ),
+    )
+    other = AxiellCoordinator(hass, other_entry, other_client)
+    await other.async_config_entry_first_refresh()
+    client.async_get_loans.return_value = [loan(Overdue=True)]
+    await coordinator.async_refresh()
+    assert coordinator.data.loans[0].publisher == "First Press"
+    assert coordinator.data.loans[0].due_date == date(2026, 11, 19)
+    assert coordinator.data.loans[0].overdue is True
+    assert other.data.loans[0].publisher == "Second Press"
+    assert other.data.loans[0].due_date == date(2026, 11, 26)
+    assert other.data.loans[0].overdue is False
+    assert other.data.loans[0].can_renew is False
+    client.async_get_record.assert_awaited_once_with("record-a", "ILS")
+    other_client.async_get_record.assert_awaited_once_with("record-a", "ILS")

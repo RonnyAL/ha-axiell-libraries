@@ -1,6 +1,7 @@
 """Read-only loan counts and next due date for each library account."""
 
 from datetime import date
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -41,9 +42,18 @@ async def async_setup_entry(
 class AxiellSensor(AxiellEntity, SensorEntity):
     """Derive values from a successful snapshot; failed refreshes are unavailable."""
 
+    _unrecorded_attributes = frozenset({"loans"})
+
     def __init__(self, entry: AxiellConfigEntry, description: SensorEntityDescription):
         super().__init__(entry, description.key)
         self.entity_description = description
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the current issued copies only on the active-loan count."""
+        if self.entity_description.key == "active_loans":
+            return {"loans": [loan.as_dict() for loan in self.coordinator.data.loans]}
+        return None
 
     @property
     def native_value(self) -> int | date | None:
