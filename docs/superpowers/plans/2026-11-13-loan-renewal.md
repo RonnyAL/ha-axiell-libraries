@@ -75,6 +75,8 @@
 ## Final verification and delivery
 
 - [x] Controller runs full pytest on actual 2026.11.1 and minimum 2026.11.0, Ruff, actionlint and official hassfest; record versions/counts in docs/validation.md.
-- [ ] Perform independent whole-branch review, address findings with tests and scoped re-review.
+- [x] Perform independent whole-branch review, address findings with tests and scoped re-review.
 - [ ] Create PR, verify hosted CI, use existing merge authorization only after checks pass. Do not dispatch release workflow or invoke live renewal.
 - [ ] Report tested evidence, action/confirmation usage, PR, remaining unverified protocol behavior and rulings.
+
+Delivery: [PR #5](https://github.com/RonnyAL/ha-axiell-libraries/pull/5) records the final report, hosted checks and merge status. All task reviews and the final whole-branch review approved the implementation. Local and hosted verification evidence is in [validation.md](../../validation.md); release publication and live renewal remain held.

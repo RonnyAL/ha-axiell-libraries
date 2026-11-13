@@ -73,6 +73,17 @@ successful renewal with failed refresh remains explicitly successful. Admins
 and trusted HA system contexts can call the action; no automatic renewal is
 installed. See the [action guide](home-assistant-ui.md#renew-one-loan).
 
+All three task reviews and the final whole-branch review approved the change
+without blocking findings. [PR #5](https://github.com/RonnyAL/ha-axiell-libraries/pull/5)
+contains the delivery report and current merge/check status. Hosted validation
+at reviewed commit `509da8d` also passed:
+
+- [Push CI](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43481884142):
+  Python 3.14.10; actual Core/harness 2026.11.0, 599 passed/5 warnings in 13.70s;
+  actual Core/harness 2026.11.1, 599 passed/5 warnings in 14.81s.
+- Ruff: all checks passed, 47 files already formatted. Official hassfest:
+  invalid integrations 0. All four hosted jobs succeeded.
+
 No live renewal, fee acknowledgement or provider challenge sequence was tested.
 APK evidence establishes request shape and client behavior only. Browser action
 rendering, real provider policy and a live Marketplace 0.4.0 update remain
