@@ -55,5 +55,23 @@
         "__manual__": "Enter LocationID manually"
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "active_loans": {
+        "name": "Active loans"
+      },
+      "next_due_date": {
+        "name": "Next due date"
+      },
+      "overdue_loans": {
+        "name": "Overdue loans"
+      }
+    },
+    "todo": {
+      "loans": {
+        "name": "Library loans"
+      }
+    }
   }
 }

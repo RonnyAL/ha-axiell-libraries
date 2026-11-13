@@ -55,5 +55,23 @@
         "__manual__": "Skriv inn LocationID manuelt"
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "active_loans": {
+        "name": "Aktive lån"
+      },
+      "next_due_date": {
+        "name": "Neste forfallsdato"
+      },
+      "overdue_loans": {
+        "name": "Forfalte lån"
+      }
+    },
+    "todo": {
+      "loans": {
+        "name": "Biblioteklån"
+      }
+    }
   }
 }

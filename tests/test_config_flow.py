@@ -40,6 +40,11 @@ def entry_data():
 def api():
     """Replace Solus I/O; real managed sessions and flow lifecycle remain intact."""
     with (
+        # Successful flows schedule entry setup; lifecycle is exercised separately
+        # in test_entities.py, while these assertions cover flow validation only.
+        patch(
+            "custom_components.axiell_libraries.async_setup_entry", return_value=True
+        ),
         patch(
             "custom_components.axiell_libraries.solus.async_find_nearby",
             new_callable=AsyncMock,
