@@ -9,21 +9,27 @@ from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 ## Current: Core 2026.11 and Marketplace preparation
 
 Branch `feat/ha-2026-11-marketplace` targets integration version `0.2.0`, which
-is not published. The repository remains private. Tasks 1 and 2 passed independent
-review; Task 3 documentation and the final whole-branch review are next gates.
+is not published. The repository remains private. All three tasks passed
+independent review. Whole-branch review found one release help-argument bypass;
+the fix has local RED/GREEN evidence below. Scoped fix review and hosted CI for
+the final fix head remain pending controller observation.
 The original v1 evidence below is historical, not the current support statement.
 
 ### Runtime and command evidence
 
-Final Task 2 complete suites used actual installed Core and the matching official
+Final fix complete suites used actual installed Core and the matching official
 `pytest-homeassistant`, not a Core dependency override. Both environments used
 Python **3.14.7**, aiohttp **3.14.5**, aioresponses **0.7.9**, pytest **9.0.3**,
 aiogithubapi **26.0.0** and Ruff **0.17.5**.
 
 | Environment | Core / official harness | Command | Recorded result |
 | --- | --- | --- | --- |
-| `/tmp/axiell-ha202611-venv` | 2026.11.1 / 2026.11.1 | `bin/python -m pytest -q` | `171 passed, 5 warnings in 2.33s` |
-| `/tmp/axiell-ha2026110-venv` | 2026.11.0 / 2026.11.0 | `bin/python -m pytest -q` | `171 passed, 5 warnings in 2.23s` |
+| `/tmp/axiell-ha202611-venv` | 2026.11.1 / 2026.11.1 | `bin/python -m pytest -q` | `173 passed, 5 warnings in 2.34s` |
+| `/tmp/axiell-ha2026110-venv` | 2026.11.0 / 2026.11.0 | `bin/python -m pytest -q` | `173 passed, 5 warnings in 2.24s` |
+
+Historical Task 2 runs before the final review fix recorded `171 passed,
+5 warnings in 2.33s` on Core 2026.11.1 and `171 passed, 5 warnings in 2.23s`
+on Core 2026.11.0. The two help-argument regressions raise the local total to 173.
 
 Commands above append `bin/...` to the environment path. Other final commands:
 
@@ -44,7 +50,8 @@ Actionlint was 1.7.11 (Go 1.25.7, linux/amd64). After updating workflow actions 
 `actions/checkout@v7.0.1` and `actions/setup-python@v7.1.0` (official Node 24
 releases) in `fdaa236`, actionlint and diff checks again exited 0.
 
-Official container validation:
+Earlier Task 2 official container validation (not repeated for this release-only
+fix):
 
 ```text
 docker run --rm -v /home/ronny/axiell/ha-axiell-libraries:/github/workspace:ro ghcr.io/home-assistant/hassfest:latest
@@ -99,9 +106,32 @@ The PR log prints Python **3.14.10**, distinct from local **3.14.7**, and assert
 exact Core/harness pairs. Core 2026.11.0: `171 passed, 5 warnings in 4.09s`;
 Core 2026.11.1: `171 passed, 5 warnings in 3.38s`. Official hassfest reports
 `Invalid integrations: 0`; Ruff reports `All checks passed!` and
-`28 files already formatted`. This evidence applies to `fdaa236`; the controller
-will check the final documentation head after task review. The Release
+`28 files already formatted`. This historical 171-test evidence applies to
+`fdaa236`. The documentation head `1d31757` also passed the controller-observed
+[PR run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43384542304)
+and [push run](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43384535505).
+These hosted passes predate the final fix; hosted CI for the final fix head and
+scoped fix review remain pending controller observation. The Release
 publishing workflow has not been executed.
+
+Whole-branch review found that argparse's default `-h`/`--help` handling returned
+success before validating the dispatch version. `scripts/check_release.py` now
+disables automatic help, so both flags fail with exit 2. The two regressions in
+`tests/test_release.py` parse the workflow and execute its actual validation
+command with each flag in `RELEASE_VERSION`; they do not invoke any publishing
+step. Existing normal/future version, manifest-mismatch, prefix, shell-shaped,
+trailing-newline, path and empty-value cases remain unchanged.
+
+```text
+/tmp/axiell-ha202611-venv/bin/python -m pytest -q tests/test_release.py --tb=short
+RED: 2 failed, 8 passed, 5 warnings in 0.42s
+GREEN: 10 passed, 5 warnings in 0.39s
+```
+
+Both RED failures were the expected `0 == 2` return-code assertions: the command
+printed help and returned success. GREEN confirms exit 2, a missing-tag error
+and empty stdout for both inputs. No integration behavior or workflow publishing
+permissions changed. API assumptions and remaining live checks are unchanged.
 
 Validate runs official hassfest, Ruff and the full exact-pair runtime matrix on
 push/PR and as a reusable workflow, using read-only contents access. Release

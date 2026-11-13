@@ -8,7 +8,7 @@ from pathlib import Path
 
 def main() -> int:
     """Validate a maintainer-provided tag before any GitHub write."""
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, add_help=False)
     parser.add_argument("tag")
     parser.add_argument(
         "manifest",
