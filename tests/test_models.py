@@ -198,3 +198,17 @@ def test_missing_catalogue_fields_keep_loan_fallback(loan_payload):
     assert enriched.author == "Sample, Alex"
     assert enriched.title == "Example book A"
     assert enriched.image_url is None
+
+
+def test_catalogue_format_and_immutable_publisher_metadata_reach_loan(
+    loan_payload, record_payload
+):
+    record = CatalogueRecord.from_api(record_payload)
+    enriched = Loan.from_api(loan_payload).with_catalogue(record)
+    assert enriched.format == "Bok"
+    assert enriched.main_metadata == {"Utgiver": "Sample Press", "Utgitt": "2026"}
+    with pytest.raises(TypeError):
+        enriched.main_metadata["Utgiver"] = "Changed"
+    unchanged = enriched.with_catalogue(CatalogueRecord.from_api({}))
+    assert unchanged.format == "Bok"
+    assert unchanged.main_metadata == {"Utgiver": "Sample Press", "Utgitt": "2026"}

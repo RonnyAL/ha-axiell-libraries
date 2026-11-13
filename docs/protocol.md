@@ -179,3 +179,36 @@ upstream auth error code. Missing, malformed or unknown statuses raise
 failures instead of requesting a new PIN. HTTP 401/403 remains an explicit
 authentication rejection. Exact upstream negative status codes still require a
 local probe by the owner with credentials outside Git.
+
+## Coordinator refresh and catalogue policy
+
+Each config entry owns an `AxiellCoordinator` and its client/cache. Integration
+setup must create the client using the stored DeviceID and call
+`async_config_entry_first_refresh()`; the coordinator's `_async_setup` performs
+initial login, so setup must not log in separately. Subsequent manual and
+six-hour scheduled refreshes reuse that client and its in-memory session.
+Neither refresh nor authentication recovery constructs a new device identity.
+
+Only explicit `SolusSessionExpired` triggers one recovery login and one complete
+refresh retry. Invalid credentials request reauthentication immediately. Metadata
+requests are settled before recovery starts, and credential rejection takes
+precedence if parallel requests report both rejection and expiry. A second
+expiry requests reauthentication; transport/protocol failures produce a static
+`UpdateFailed`. Failed loan updates retain the previous snapshot and mark the
+coordinator unavailable; an explicit successful `[]` replaces it with zero loans.
+
+Catalogue records are cached by `(record_id, source)` for 24 hours, with an
+entry-local least-recently-used limit of 256 records and at most four concurrent
+`RecordGet` calls. Distinct issued copies share metadata requests while keeping
+their own loan IDs and due dates. Expired cache entries are refreshed on demand;
+failed, empty, or mismatched metadata responses leave available stale metadata
+and the loan intact, without renewing the stale cache timestamp. Records without
+a usable record ID/source skip enrichment. Optional returned `Source`, when
+present, must match the requested source, and `RecordID` must always match.
+
+Catalogue `Format` and string `MainMetadata` values reach the enriched loan.
+Publisher/year values remain in an immutable mapping under the provider's keys
+(`Utgiver` and `Utgitt` in the synthetic Norwegian fixture); no universal localized
+publisher/year key scheme is assumed. These cache, concurrency, retry, and
+optional source-validation policies are implementation choices verified offline,
+not new claims about upstream API behavior. No live account test was performed.

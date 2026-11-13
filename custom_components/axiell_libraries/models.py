@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
+from types import MappingProxyType
 from typing import Any, Self
 from urllib.parse import urlsplit
 
@@ -108,6 +109,10 @@ class Loan:
     image_url: str | None = None
     isbn: str | None = None
     description: str | None = None
+    format: str | None = None
+    main_metadata: Mapping[str, str] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     @classmethod
     def from_api(cls, payload: Mapping[str, Any]) -> Self:
@@ -138,4 +143,16 @@ class Loan:
             image_url=record.image_url or self.image_url,
             isbn=record.isbn or self.isbn,
             description=record.description or self.description,
+            format=record.format or self.format,
+            main_metadata=MappingProxyType(
+                {**self.main_metadata, **record.main_metadata}
+            ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class LibrarySnapshot:
+    """One successful loan refresh, including any available enrichment."""
+
+    loans: tuple[Loan, ...]
+    fetched_at: datetime
