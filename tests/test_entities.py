@@ -1,8 +1,9 @@
 """Offline HA entity, service and per-account lifecycle contracts."""
 
+import asyncio
 import json
 from copy import deepcopy
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from secrets import token_hex
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,6 +22,7 @@ from custom_components.axiell_libraries.const import DOMAIN
 from custom_components.axiell_libraries.solus import (
     SolusAuthError,
     SolusConnectionError,
+    SolusSecurityError,
 )
 
 DEVICE = "0123456789abcdef"
@@ -83,7 +85,7 @@ def entry(hass, suffix="0"):
 def api():
     """Replace only upstream I/O, retaining HA sessions and the real coordinator."""
     state = SimpleNamespace(
-        clients=[], logins=[], rows=rows(), login_error=None, loans_error=None
+        clients=[], logins=[], reads=[], rows=rows(), login_error=None, loans_error=None
     )
 
     async def login(client, card, pin):
@@ -94,6 +96,7 @@ def api():
         return []
 
     async def loans(client, card):
+        state.reads.append((client, card))
         if state.loans_error:
             raise state.loans_error("SYNTHETIC_PRIVATE_DETAIL")
         return deepcopy(state.rows)
@@ -167,6 +170,8 @@ async def test_native_entities_have_independent_dates_safe_metadata_and_device(
         "overdue_loans",
         "loans",
         "data_freshness",
+        "last_successful_refresh",
+        "refresh",
     }
     assert hass.states.get(ids["active_loans"]).state == "3"
     assert hass.states.get(ids["overdue_loans"]).state == "1"
@@ -658,7 +663,7 @@ async def test_live_options_reschedule_without_reloading_account(hass, api, free
     api.rows = []
     freezer.tick(timedelta(minutes=31))
     async_fire_time_changed(hass, datetime.now(UTC))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert hass.states.get(ids["active_loans"]).state == "0"
     assert entities(hass, config) == ids
 
@@ -684,3 +689,254 @@ async def test_freshness_sensor_and_attributes_retain_stale_data(hass, api):
     assert hass.states.get(ids["active_loans"]).state == "0"
     assert hass.states.get(ids["data_freshness"]).state == "fresh"
     assert hass.states.get(ids["active_loans"]).attributes["last_update_error"] is None
+
+
+async def press(hass, entity_id):
+    await hass.services.async_call(
+        "button", "press", {"entity_id": entity_id}, blocking=True
+    )
+
+
+async def test_timestamp_is_aware_account_diagnostic_and_unchanged_on_failure(
+    hass, api, freezer
+):
+    config = entry(hass)
+    ids = await setup(hass, config)
+    timestamp = hass.data["sensor"].get_entity(ids["last_successful_refresh"])
+    fetched = timestamp.native_value
+    assert isinstance(fetched, datetime) and fetched.tzinfo is not None
+    assert fetched == config.runtime_data.data.fetched_at
+    state = hass.states.get(timestamp.entity_id)
+    assert state.attributes["device_class"] == "timestamp"
+    assert (
+        er.async_get(hass).async_get(timestamp.entity_id).entity_category
+        == "diagnostic"
+    )
+    registry = er.async_get(hass)
+    assert (
+        registry.async_get(timestamp.entity_id).device_id
+        == registry.async_get(ids["active_loans"]).device_id
+    )
+    freezer.tick(timedelta(minutes=1))
+    api.loans_error = SolusConnectionError
+    await config.runtime_data.async_refresh()
+    assert timestamp.available
+    assert timestamp.native_value == fetched
+    assert hass.states.get(timestamp.entity_id).state == state.state
+    assert hass.states.get(ids["data_freshness"]).state == "stale"
+    config.runtime_data.data = None
+    config.runtime_data.async_update_listeners()
+    assert timestamp.available
+    assert timestamp.native_value is None
+    assert hass.states.get(timestamp.entity_id).state == "unknown"
+
+
+@pytest.mark.parametrize("error", [SolusAuthError, SolusSecurityError])
+async def test_withheld_content_is_hidden_but_historical_timestamp_stays(
+    hass, api, error
+):
+    config = entry(hass)
+    ids = await setup(hass, config)
+    fetched = hass.states.get(ids["last_successful_refresh"]).state
+    api.loans_error = error
+    await config.runtime_data.async_refresh()
+    assert hass.states.get(ids["active_loans"]).state == "unavailable"
+    assert "loans" not in hass.states.get(ids["active_loans"]).attributes
+    sensor = hass.data["sensor"].get_entity(ids["active_loans"])
+    assert "loans" not in sensor.extra_state_attributes
+    todo = hass.data["todo"].get_entity(ids["loans"])
+    assert todo.todo_items == []
+    assert hass.states.get(ids["loans"]).state == "unavailable"
+    assert hass.states.get(ids["data_freshness"]).state == "unavailable"
+    assert hass.states.get(ids["last_successful_refresh"]).state == fetched
+    assert hass.data["button"].get_entity(ids["refresh"]).available
+    # A subsequent transient error cannot undo the sticky privacy block.
+    api.loans_error = SolusConnectionError
+    await config.runtime_data.async_refresh()
+    assert "loans" not in hass.states.get(ids["active_loans"]).attributes
+    assert todo.todo_items == []
+    # The diagnostic control requests recovery through existing coordinator policy.
+    api.loans_error = None
+    await press(hass, ids["refresh"])
+    assert hass.states.get(ids["active_loans"]).state == "3"
+    assert hass.states.get(ids["data_freshness"]).state == "fresh"
+
+
+async def test_restored_timestamp_and_recorder_exclusion_survive_failed_startup(
+    hass, api
+):
+    from tests.test_snapshot import NOW, snapshot, store_for
+
+    config = entry(hass)
+    await store_for(hass, config).async_save(snapshot())
+    api.login_error = SolusConnectionError
+    ids = await setup(hass, config)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert hass.states.get(ids["last_successful_refresh"]).state == NOW.isoformat()
+    assert hass.states.get(ids["data_freshness"]).state == "stale"
+    state = hass.states.get(ids["active_loans"])
+    assert state.attributes["loans"][0]["title"] == "Synthetic book"
+    event = Event(
+        EVENT_STATE_CHANGED, {"entity_id": state.entity_id, "new_state": state}
+    )
+    assert "loans" not in json.loads(
+        StateAttributes.shared_attrs_bytes_from_event(event, None)
+    )
+    assert (await get_items(hass, ids["loans"]))[0]["uid"] == "copy-a"
+    api.login_error = None
+    await press(hass, ids["refresh"])
+    assert hass.states.get(ids["data_freshness"]).state == "fresh"
+    assert hass.states.get(ids["active_loans"]).state == "3"
+    assert len({id(client) for client in api.clients}) == 1
+    assert all(device == DEVICE for device, *_ in api.logins)
+
+
+async def test_refresh_button_reads_same_account_without_writes_and_preserves_ids(
+    hass, api, freezer
+):
+    config = entry(hass)
+    ids = await setup(hass, config)
+    original_client = api.clients[0]
+    original_data = dict(config.data)
+    old_timestamp = hass.states.get(ids["last_successful_refresh"]).state
+    button = hass.data["button"].get_entity(ids["refresh"])
+    assert button.icon == "mdi:refresh"
+    freezer.tick(timedelta(minutes=1))
+    api.rows = []
+    with patch.object(
+        original_client,
+        "async_renew_loan",
+        side_effect=AssertionError("Unexpected write"),
+    ):
+        await press(hass, ids["refresh"])
+    assert hass.states.get(ids["active_loans"]).state == "0"
+    assert hass.states.get(ids["last_successful_refresh"]).state != old_timestamp
+    assert hass.states.get(ids["refresh"]).state not in {"unknown", "unavailable"}
+    assert api.reads == [(original_client, CARD), (original_client, CARD)]
+    assert api.clients == [original_client]
+    assert config.data == original_data
+    assert entities(hass, config) == ids
+
+
+async def test_refresh_button_bursts_use_native_debounce_and_failure_is_not_success(
+    hass, api, freezer
+):
+    from pytest_homeassistant.common import async_fire_time_changed
+
+    config = entry(hass)
+    ids = await setup(hass, config)
+    fetched = hass.states.get(ids["last_successful_refresh"]).state
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def read(*_):
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        raise SolusConnectionError()
+
+    with patch.object(api.clients[0], "async_get_loans", side_effect=read):
+        first = asyncio.create_task(press(hass, ids["refresh"]))
+        await started.wait()
+        await asyncio.gather(*(press(hass, ids["refresh"]) for _ in range(4)))
+        assert calls == 1
+        assert hass.states.get(ids["last_successful_refresh"]).state == fetched
+        release.set()
+        await first
+        assert hass.states.get(ids["data_freshness"]).state == "stale"
+        assert hass.states.get(ids["refresh"]).state not in {"unknown", "unavailable"}
+        assert hass.states.get(ids["last_successful_refresh"]).state == fetched
+        freezer.tick(timedelta(seconds=11))
+        async_fire_time_changed(hass, datetime.now(UTC))
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert calls == 2  # Core coalesces the burst into one trailing refresh.
+        assert hass.states.get(ids["last_successful_refresh"]).state == fetched
+
+
+async def test_refresh_button_respects_provider_cooldown(hass, api):
+    config = entry(hass)
+    ids = await setup(hass, config)
+    fetched = hass.states.get(ids["last_successful_refresh"]).state
+    client = api.clients[0]
+
+    async def cooldown(*_):
+        raise SolusConnectionError(reason="http", status=429, retry_after=900)
+
+    with patch.object(client, "async_get_loans", side_effect=cooldown):
+        await config.runtime_data.async_refresh()
+    api.rows = []
+    await press(hass, ids["refresh"])
+    assert len(api.reads) == 1
+    assert api.clients == [client]
+    assert hass.states.get(ids["active_loans"]).state == "3"
+    assert hass.states.get(ids["data_freshness"]).state == "stale"
+    assert hass.states.get(ids["last_successful_refresh"]).state == fetched
+
+
+async def test_refresh_button_serializes_with_renewal_and_gates_unload(hass, api):
+    from custom_components.axiell_libraries.solus import RenewalReply
+    from tests.test_renewal import checkpoint
+
+    api.rows[0]["canRenew"] = True
+    config = entry(hass)
+    ids = await setup(hass, config)
+    coordinator = config.runtime_data
+    button = hass.data["button"].get_entity(ids["refresh"])
+    dispatched, release = asyncio.Event(), asyncio.Event()
+
+    async def write(*_, **__):
+        dispatched.set()
+        await release.wait()
+        return RenewalReply("success", "Renewed")
+
+    with patch.object(api.clients[0], "async_renew_loan", side_effect=write) as writes:
+        renewal = asyncio.create_task(coordinator.async_renew_loan("loan-a"))
+        await dispatched.wait()
+        reads_before = len(api.reads)
+        refresh = asyncio.create_task(press(hass, ids["refresh"]))
+        await checkpoint()
+        assert len(api.reads) == reads_before
+        release.set()
+        assert (await renewal).status == "renewed"
+        await refresh
+        assert writes.await_count == 1
+    assert len(api.reads) == reads_before + 2  # reconciliation then button read
+    coordinator.async_set_closing(True)
+    assert not button.available
+    before = len(api.reads)
+    await button.async_press()  # stale UI references cannot enqueue during closing
+    assert len(api.reads) == before
+    coordinator.async_set_closing(False)
+    assert await hass.config_entries.async_unload(config.entry_id)
+    assert hass.data["button"].get_entity(ids["refresh"]) is None
+    await button.async_press()
+    assert len(api.reads) == before
+
+
+@pytest.mark.parametrize("category", ["credentials", "security"])
+async def test_restored_withholding_hides_content_and_retains_diagnostics(
+    hass, api, category
+):
+    from tests.test_snapshot import NOW, snapshot, store_for
+
+    config = entry(hass)
+    await store_for(hass, config).async_mark_withheld(snapshot(), category)
+    api.login_error = SolusConnectionError
+    ids = await setup(hass, config)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert hass.states.get(ids["last_successful_refresh"]).state == NOW.isoformat()
+    assert hass.states.get(ids["data_freshness"]).state == "unavailable"
+    assert (
+        "loans"
+        not in hass.data["sensor"]
+        .get_entity(ids["active_loans"])
+        .extra_state_attributes
+    )
+    assert hass.data["todo"].get_entity(ids["loans"]).todo_items == []
+    assert hass.data["button"].get_entity(ids["refresh"]).available
+    assert await hass.config_entries.async_reload(config.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert entities(hass, config) == ids
+    assert hass.states.get(ids["last_successful_refresh"]).state == NOW.isoformat()
+    assert hass.data["todo"].get_entity(ids["loans"]).todo_items == []

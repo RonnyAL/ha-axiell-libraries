@@ -65,6 +65,8 @@ class AxiellTodo(AxiellEntity, TodoListEntity):
 
     @property
     def todo_items(self) -> list[TodoItem]:
+        if not self.coordinator.snapshot_available:
+            return []
         return [
             TodoItem(
                 uid=loan.loan_id,

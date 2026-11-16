@@ -95,5 +95,9 @@ async def test_options_and_freshness_translations_are_available_to_ha(hass, lang
 
     assert options[f"component.{DOMAIN}.options.step.init.data.update_interval"]
     assert entity[f"component.{DOMAIN}.entity.sensor.data_freshness.name"]
+    assert entity[f"component.{DOMAIN}.entity.sensor.last_successful_refresh.name"]
+    assert entity[f"component.{DOMAIN}.entity.button.refresh.name"] == (
+        "Oppdater nå" if language == "nb" else "Refresh now"
+    )
     for state in ("fresh", "stale", "unavailable"):
         assert entity[f"component.{DOMAIN}.entity.sensor.data_freshness.state.{state}"]

@@ -227,7 +227,7 @@ class RenewalManager:
                 sensitive_values=(data["card"], data["pin"], data["device_id"]),
             )
         except SolusError as error:
-            coordinator.async_note_write_failure(error)
+            await coordinator.async_note_write_failure(error)
             await coordinator._async_refresh_and_publish_unlocked()
             raise RenewalError("outcome_unknown") from None
         if reply.outcome == "success":

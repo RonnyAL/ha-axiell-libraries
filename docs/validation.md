@@ -7,7 +7,67 @@ library/card, persistent DeviceID, initially read-only Solus access, nearby disc
 manual LocationID. No redesign approval was needed. The original six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: 0.5.1 release preparation
+## Current: snapshot restoration and native refresh controls (unreleased)
+
+Local branch `feat/snapshot-restoration` adds a private, atomic, account-bound
+normalized Store snapshot, restored stale before a background read; no cache
+still follows HA first-refresh setup/retry. Diagnostic timestamp and native
+refresh button entities consume the reviewed coordinator lifecycle. Credential/
+security withholding guards rich sensor attributes and to-do content, including
+restoration; Recorder exclusions still apply. Existing IDs, read policies and
+explicit renewal consent/authorization remain in place. No version bump, live
+provider operation, deployment or release is part of this change.
+
+Task 2 test-first commands, before implementing the new entities/content guards:
+
+```text
+/tmp/axiell-supplemental/run-tests tests/test_entities.py -k 'timestamp or withheld_content or refresh_button' -q
+8 failed, 22 deselected in 0.72s
+```
+
+The failures were missing timestamp/button entities. After adding them, the same
+selection with `--tb=short` gave **2 failed, 6 passed, 22 deselected in 0.68s**:
+withheld to-do content remained exposed. Strengthening the rich sensor getter
+assertion and running `-k withheld_content -q --tb=short` gave **2 failed,
+28 deselected in 0.32s**, proving the separate attribute guard was also needed.
+After both guards, the focused entity/snapshot suite passed **68 tests**; adding
+two restored-withholding cases produced the final focused result:
+
+```text
+/tmp/axiell-supplemental/run-tests tests/test_entities.py tests/test_snapshot.py -q --tb=short
+70 passed in 2.67s
+/tmp/axiell-supplemental/run-tests --ignore=tests/test_marketplace.py -k 'not test_real_cookie_transport_isolated_in_ha_owned_sessions' -q
+856 passed, 2 deselected in 18.35s
+/tmp/axiell-supplemental/run-tests tests/test_entities.py tests/test_snapshot.py tests/test_options.py -q --tb=short
+84 passed in 3.02s
+/home/ronny/vscode/projects/tesla/ha-tesla-fleet-telemetry/.venv/bin/ruff check .
+All checks passed!
+/home/ronny/vscode/projects/tesla/ha-tesla-fleet-telemetry/.venv/bin/ruff format --check .
+67 files already formatted
+```
+
+The final focused run includes HA-loaded English/Norwegian timestamp/button
+labels added after the broad run. `git diff --check` passed. The first quality run found five overlong test lines
+and one test file needing format; only the changed test file was formatted before
+the successful checks. Python 3.14 / Core 2026.9.3 with a custom harness alias is
+supplemental evidence only. The older Core lacks Marketplace, and sandbox socket
+binding blocks the two excluded cookie-transport cases. Full supported Core
+2026.11.0/2026.11.1 suites, Marketplace/socket cases, pinned Ruff 0.17.5 and
+hassfest remain target CI gates for the reviewed PR revision. Dependency/network
+installs were not retried and repository requirements/gates were not weakened.
+
+Exact November Core storage/coordinator/button APIs were checked separately.
+Native button state advances before completion, and debounce may return before
+a queued read runs; only the historical snapshot timestamp and freshness describe
+the read result. Shutdown skips saves to prevent deferred resurrection; a read
+finishing during stopping can leave older history. Unsafe failures attempt cache
+removal. If all marker writes/removals fail, the finite runtime block protects
+reloads in that process but cannot guarantee withholding after process loss.
+Private Store permissions are not encryption; HA backups can contain reading
+history. Actual HA process restart, browser rendering, Norwegian frontend labels
+and live provider behavior remain owner-run checks.
+
+## Historical: 0.5.1 release preparation
 
 The owner explicitly requested merge and release on 2026-11-16 after PR #9's
 catalogue body-status fix passed both supported runtimes (819 tests each; see

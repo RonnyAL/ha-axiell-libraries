@@ -25,7 +25,7 @@ from tests.test_coordinator import setup_coordinator as setup_coordinator
 async def advance(hass, freezer, seconds):
     freezer.tick(timedelta(seconds=seconds))
     async_fire_time_changed(hass, datetime.now(UTC))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
 
 @pytest.mark.parametrize("error", [SolusConnectionError, SolusProtocolError])
@@ -205,7 +205,7 @@ async def test_recovery_timer_serializes_with_write_and_does_not_repeat_it(
         with pytest.raises(RenewalError) as exc:
             await task
         assert exc.value.code == "outcome_unknown"
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         client.async_renew_loan.assert_awaited_once()
         assert coordinator.last_update_success
     finally:
