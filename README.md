@@ -6,8 +6,8 @@ its own Home Assistant config entry, persistent DeviceID, session and entities.
 
 This uses an **unofficial, reverse-engineered API**. Runtime targets are
 Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
-Python **3.14.7 locally / 3.14.10 in CI**. Version **0.5.0** adds automatic recovery, configurable polling and explicit
-freshness reporting, while preserving individual renewal with informed consent.
+Python **3.14.7 locally / 3.14.10 in CI**. Version **0.5.1** fixes catalogue body-status handling for session expiry and
+validation requirements, preserving bounded recovery and single-write renewal.
 The owner confirms live Home Assistant authentication, all three aggregate
 sensors, and Marketplace installation/update. New structured loan attributes
 and dashboard templates have offline coverage; browser rendering and covers
@@ -17,8 +17,8 @@ still need an owner-run check. See [validation evidence](docs/validation.md).
 
 The owner has exercised Marketplace installation/update and account setup.
 Check the new loan details after installing this change and restarting HA.
-Version `0.5.0` preserves existing accounts, DeviceIDs and entity IDs. It adds
-a diagnostic freshness sensor and an update interval option.
+Version `0.5.1` preserves existing accounts, DeviceIDs and entity IDs. It fixes catalogue session-expiry
+and validation-required responses while retaining recovery and freshness features.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
    **Settings → Marketplace → Add from link** and enter
@@ -214,7 +214,7 @@ python3.14 -m venv /tmp/axiell-dev-2026110
 
 docker run --rm -v "$PWD:/github/workspace:ro" ghcr.io/home-assistant/hassfest:latest
 actionlint
-/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.5.0
+/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.5.1
 git diff --check
 ```
 
@@ -233,21 +233,21 @@ for local and hosted evidence and the remaining owner-run checks.
 
 ## Maintainer releases
 
-The canonical release identifiers are manifest `0.5.0`, Git tag `v0.5.0`
-and release title `0.5.0`. The owner has explicitly authorized publication of
-0.5.0 on November 15, 2026; future publications and live renewal tests require
+The canonical release identifiers are manifest `0.5.1`, Git tag `v0.5.1`
+and release title `0.5.1`. The owner has explicitly authorized publication of
+0.5.1 on November 16, 2026; future publications and live renewal tests require
 separate explicit instruction. Preserve repository visibility.
 
-For the authorized 0.5.0 publication, a one-time workflow additionally requires
-an explicit `[publish-v0.5.0]` marker on the merge commit, a change to that workflow,
-and `main`; it runs the same complete validation before publishing only 0.5.0.
+For the authorized 0.5.1 publication, a one-time workflow additionally requires
+an explicit `[publish-v0.5.1]` marker on the merge commit, a change to that workflow,
+and `main`; it runs the same complete validation before publishing only 0.5.1.
 The ordinary manual workflow remains available for later authorized releases.
 After review and merge to `main`, a maintainer may dispatch
-**Actions → Release** with numeric input `0.5.0`. Full reusable validation,
+**Actions → Release** with numeric input `0.5.1`. Full reusable validation,
 tag/manifest agreement and reviewed notes gate atomic tag creation at the
 validated dispatch SHA. Existing tags are refused. No attached ZIP is required.
 See [release preparation and failure recovery](docs/releases.md) and the
-[0.5.0 notes](docs/releases/0.5.0.md). If publishing fails after tag creation,
+[0.5.1 notes](docs/releases/0.5.1.md). If publishing fails after tag creation,
 inspect the validated SHA and repository state before authorized recovery;
 never blindly rerun or move/delete the tag. Direct-link update checks require
 a GitHub connection and can take up to the documented 48-hour interval. This

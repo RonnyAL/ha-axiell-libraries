@@ -91,8 +91,8 @@ def test_release_rejects_unreadable_manifest(tmp_path, content):
 
 
 @pytest.fixture(
-    params=[("release.yaml", "0.3.0"), ("publish-0.5.0.yaml", "0.5.0")],
-    ids=["manual-release", "one-time-0.5.0"],
+    params=[("release.yaml", "0.3.0"), ("publish-0.5.1.yaml", "0.5.1")],
+    ids=["manual-release", "one-time-0.5.1"],
 )
 def release_workflow(request):
     """Keep the general release and one-time release under the same guards."""
@@ -212,7 +212,7 @@ def test_workflow_creates_immutable_tag_then_reviewed_release(
     "version",
     [
         "0.3.1",
-        "0.5.1",
+        "0.5.2",
         "v0.3.0",
         "00.3.0",
         "0.3.0-rc.1",
@@ -283,22 +283,22 @@ def test_workflow_only_publishes_main_after_full_validation(release_workflow):
     workflow, version = release_workflow
     validate = workflow["jobs"]["validate"]
     publish = workflow["jobs"]["publish"]
-    if version == "0.5.0":
+    if version == "0.5.1":
         assert (
             validate["if"]
             == publish["if"]
             == (
                 "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
-                "contains(github.event.head_commit.message, '[publish-v0.5.0]')"
+                "contains(github.event.head_commit.message, '[publish-v0.5.1]')"
             )
         )
         assert workflow["on"] == {
             "push": {
                 "branches": ["main"],
-                "paths": [".github/workflows/publish-0.5.0.yaml"],
+                "paths": [".github/workflows/publish-0.5.1.yaml"],
             }
         }
-        assert publish["env"] == {"RELEASE_VERSION": "0.5.0"}
+        assert publish["env"] == {"RELEASE_VERSION": "0.5.1"}
     else:
         assert validate["if"] == publish["if"] == "github.ref == 'refs/heads/main'"
         assert set(workflow["on"]) == {"workflow_dispatch"}

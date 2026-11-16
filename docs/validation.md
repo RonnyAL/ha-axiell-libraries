@@ -7,7 +7,44 @@ library/card, persistent DeviceID, initially read-only Solus access, nearby disc
 manual LocationID. No redesign approval was needed. The original six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: 0.5.0 release preparation
+## Current: 0.5.1 release preparation
+
+The owner explicitly requested merge and release on 2026-11-16 after PR #9's
+catalogue body-status fix passed both supported runtimes (819 tests each; see
+November 16 evidence below). Prepared manifest/tag/title are
+0.5.1/v0.5.1/0.5.1. This preparation changes release metadata, documentation,
+publication workflow version values and offline release/Marketplace tests only.
+Historical 0.5.0 release notes remain unchanged.
+
+Test-first evidence: selecting the new `publish-0.5.1.yaml` workflow before its
+rename produced **52 passed, 23 fixture errors**, all new-workflow cases reporting
+`Missing release workflow: publish-0.5.1.yaml`. After the mechanical rename and
+version update, the actual publication shell with fake `gh` passed **75 tests**.
+It retains main/path/explicit `[publish-v0.5.1]` marker gates, reusable full CI,
+exact checkout SHA, reviewed notes and atomic creation of a previously absent
+tag. The general Release workflow stays manual with default input 0.5.1.
+
+Local supplemental checks on Python 3.14 / Core 2026.9.3:
+
+- `/tmp/axiell-supplemental/run-tests tests/test_release.py -q`:
+  **75 passed in 2.88 seconds**.
+- Full available suite with `--ignore=tests/test_marketplace.py -k
+  'not test_real_cookie_transport_isolated_in_ha_owned_sessions' -q`:
+  **804 passed, 2 deselected in 17.03 seconds**.
+- Ruff 0.16.8 full-tree check: `All checks passed!`; format:
+  `62 files already formatted`.
+- `python3.14 scripts/check_release.py v0.5.1`:
+  `Release tag and manifest agree: 0.5.1`; `git diff --check` passes.
+
+These are supplemental checks, not new supported-runtime CI. The pinned November
+runtime installation remains blocked by local DNS; this older Core lacks
+Marketplace and sandbox socket binding prevents the two excluded cookie cases.
+The release-preparation revision must pass both full supported suites, pinned
+Ruff and hassfest before merge; publication repeats them on its exact main SHA.
+No live provider operation or renewal was performed. Live provider behavior and
+the initiating cause of the November 15 outage remain unverified.
+
+## Historical: 0.5.0 release preparation
 
 Supported-runtime CI passed on 2026-11-16 for candidate
 `bd719a74933cc898127f0415980fd26eed6488db` in

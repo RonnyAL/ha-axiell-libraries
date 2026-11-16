@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
 
 - Classify exact catalogue body session-expiry and validation-required statuses,
   including HTTP 200, before read and renewal decoding. Keep expiry recovery
