@@ -9,6 +9,23 @@ from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
 ## Current: 0.5.0 release preparation
 
+Supported-runtime CI passed on 2026-11-16 for candidate
+`bd719a74933cc898127f0415980fd26eed6488db` in
+[PR #8 validation](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43831633307):
+
+- Python 3.14.10, Core and official `pytest-homeassistant` 2026.11.0:
+  **760 passed**, 5 dependency deprecation warnings, 14.80 seconds.
+- Python 3.14.10, Core and official `pytest-homeassistant` 2026.11.1:
+  **760 passed**, 5 dependency deprecation warnings, 12.49 seconds.
+- Both full suites include Marketplace and real localhost cookie isolation;
+  no tests were excluded or deselected.
+- Pinned Ruff 0.17.5 check and format passed (57 files); hassfest passed.
+
+This closes the supported-runtime validation gaps described in the historical
+implementation evidence below. Live provider assumptions remain unverified.
+The final PR revision must pass CI again; publication repeats validation on the
+exact main commit before creating the tag and release.
+
 The owner explicitly requested release on 2026-11-15 after the implementation
 report below. Prepared manifest/tag/title are 0.5.0/v0.5.0/0.5.0, with reviewed
 notes and Marketplace install/upgrade assertions for the new version.
