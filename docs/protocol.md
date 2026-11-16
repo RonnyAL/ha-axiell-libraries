@@ -490,7 +490,8 @@ HA error descriptions interpolate only a fixed `stage/reason[/HTTP-status]`
 reference. Stages are `discovery`, `manual_lookup`, `routing`, `bootstrap`,
 `login_presession`, `login_checksession`, `loans`, `catalogue`, and `renewal`,
 with `provider` for generic existing errors. Reasons are `transport`, `timeout`,
-`http`, `api_rejection`, `response_schema`, `missing_token` and `security`.
+`http`, `api_rejection`, `response_schema`, `missing_token`, `security`,
+`session_expired`, `login_expired` and `validation_required`.
 Status is optional, an integer from 100 to 599;
 strings and booleans are excluded. The boundary revalidates these allowlists.
 Neither exception text nor provider status messages, bodies, URLs, headers,
@@ -505,3 +506,29 @@ static production messages; arbitrary programming exceptions are not caught.
 
 For incomplete nearby results and authoritative Norwegian library names without
 a verified Solus join key, see [library discovery evidence](library-discovery.md).
+
+
+### Catalogue body system statuses (APK 2026.42 follow-up)
+
+The owner supplied exact, case-sensitive `d.status` values from APK 2026.42:
+`sessionexpired`, `LOGINEXPIRED`, and `VALIDATIONREQUIRED`. These are body values,
+including on HTTP 200; `d` may be an object or serialized JSON. The supplied shape
+is illustrative, not a captured production response, and does not establish the
+cause of the November 15 failure. Raw APK/decompiled sources are not included.
+The APK's `doCatCallForUser` handles recovery whereas
+`doCatCallForUserAsyncSimple` throws; this is not evidence for universal retry.
+
+The shared catalogue boundary classifies these before any operation decoder.
+Both expiry values clear authenticated/token state and raise `SolusSessionExpired`
+with distinct `session_expired`/`login_expired` reasons. Existing coordinator logic
+allows at most one relogin per read cycle; neither means invalid credentials,
+even during login. Expiry state survives a failed login reporting expiry.
+`VALIDATIONREQUIRED` raises `SolusSecurityError` (`validation_required`), including
+optional enrichment, without accelerated retry or reauthentication. No validation
+bypass, reCAPTCHA execution, CheckIsLoggedIn call, or validation token is added.
+Unknown and wrong-case statuses retain their existing decoder fallback.
+
+A renewal system status produces the existing unknown-outcome/read-reconciliation
+path: at most one write, no automatic write replay, and no derived confirmation.
+Ordinary unknown confirmation codes retain explicit consent. Diagnostics contain
+only static classifications, never `statusmessage`, `Detail`, or raw body values.

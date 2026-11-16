@@ -873,3 +873,31 @@ report only the UI error/reference, HA/integration version and failed step if
 setup fails. Enter credentials in HA only; retain the existing entry/DeviceID
 for PIN changes. Do not record or share HTTP bodies or account data. Publication,
 version changes and any future directory mapping remain separate owner decisions.
+
+## November 16 catalogue system-status follow-up
+
+Owner-provided APK 2026.42 findings identify the exact case-sensitive body values
+`sessionexpired`, `LOGINEXPIRED`, and `VALIDATIONREQUIRED`; the example response is
+illustrative, not a production capture or proof of the November 15 cause. Offline
+synthetic tests exercise HTTP 200 object/serialized `d`, serialized outer JSON,
+all three read/write operations, case-sensitive unknown fallback, and ordinary
+unknown renewal confirmation codes. Real-client coordinator tests cover bounded
+expiry relogin/repeated expiry, validation without accelerated retry or reauth,
+optional enrichment security propagation, and one-shot renewal unknown outcomes
+without pending confirmation. Login-stage tests preserve expiry and cannot-connect
+flow reporting; credential rejection retains its existing tests.
+
+The supplemental Python 3.14 / Core 2026.9.3 runner passed **804 tests**, with two
+socket transport cases deselected, using `/tmp/axiell-supplemental/run-tests
+--ignore=tests/test_marketplace.py -k 'not
+test_real_cookie_transport_isolated_in_ha_owned_sessions' -q`. Parent full-tree
+verification with Ruff 0.16.8 reported `All checks passed!` and `60 files already
+formatted`; `git diff --check` also passes. This is supplemental evidence, not a November Core CI
+result: installing the pinned target environment failed after three DNS retries
+fetching `pypi.org/simple/aioresponses`. Bare full collection fails because the
+supplemental Core lacks `homeassistant.components.marketplace`. Including the
+socket cases yields 804 passed and two pre-existing sandbox `PermissionError`
+failures in `test_real_cookie_transport_isolated_in_ha_owned_sessions[True/False]`.
+No repository requirements or exclusion gates were changed. No provider calls,
+release, push, deployment, or version bump were performed. Owner-run November Core
+CI and any live setup verification remain outstanding.

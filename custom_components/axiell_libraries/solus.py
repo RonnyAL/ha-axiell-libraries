@@ -60,6 +60,9 @@ _REASONS = frozenset(
         "api_rejection",
         "response_schema",
         "missing_token",
+        "session_expired",
+        "login_expired",
+        "validation_required",
         "security",
     }
 )
@@ -162,7 +165,7 @@ class SolusAuthError(SolusError):
 
 
 class SolusSessionExpired(SolusAuthError):
-    """An authenticated data request received HTTP 401/403."""
+    """The provider reported an expired account session."""
 
     default_category = "session"
 
@@ -172,7 +175,7 @@ class SolusProtocolError(SolusError):
 
 
 class SolusSecurityError(SolusError):
-    """Unsafe destination or redirect rejected before forwarding secrets."""
+    """Unsafe transport, destination, or required provider validation."""
 
     default_reason = "security"
     default_category = "security"
@@ -637,7 +640,7 @@ class SolusClient:
                 "Request": request,
             }
         try:
-            return await _request(
+            response = await _request(
                 self._session,
                 "POST",
                 f"{self._server}/v4/Cat.asmx/{method}?rnd={uuid4().hex}",
@@ -645,6 +648,30 @@ class SolusClient:
                 headers=headers,
                 auth_response=method == "LoginPreSession",
             )
+            try:
+                decoded = _decode(response)
+                section = (
+                    _decode(decoded.get("d")) if isinstance(decoded, dict) else None
+                )
+            except SolusProtocolError:
+                # Keep operation-specific malformed-response diagnostics.
+                return response
+            status = section.get("status") if isinstance(section, dict) else None
+            if status in ("sessionexpired", "LOGINEXPIRED"):
+                self._authenticated = False
+                self._token = ""
+                self._session_expired = True
+                raise SolusSessionExpired(
+                    "Solus session expired",
+                    reason="session_expired"
+                    if status == "sessionexpired"
+                    else "login_expired",
+                ) from None
+            if status == "VALIDATIONREQUIRED":
+                raise SolusSecurityError(
+                    "Solus validation required", reason="validation_required"
+                ) from None
+            return response
         except SolusConnectionError as error:
             if error.status not in (401, 403):
                 raise
@@ -777,7 +804,9 @@ class SolusClient:
             error.at_stage(stage)
             self._token = ""
             self._session_id = _ZERO_SESSION_ID
-            if isinstance(error, SolusAuthError):
+            if isinstance(error, SolusAuthError) and not isinstance(
+                error, SolusSessionExpired
+            ):
                 self._session_expired = False
             raise
 
