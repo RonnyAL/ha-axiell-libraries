@@ -13,11 +13,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import AxiellCoordinator
 from .services import async_setup_services
+from .snapshot import SnapshotStore
 from .solus import SolusClient
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-PLATFORMS = (Platform.SENSOR, Platform.TODO)
+PLATFORMS = (Platform.SENSOR, Platform.TODO, Platform.BUTTON)
 type AxiellConfigEntry = ConfigEntry[AxiellCoordinator]
 
 
@@ -44,10 +45,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bo
         coordinator = AxiellCoordinator(
             hass, entry, client, close_session=session.detach
         )
-        await coordinator.async_config_entry_first_refresh()
+        restored = await coordinator.async_restore_snapshot()
+        if not restored:
+            await coordinator.async_config_entry_first_refresh()
         entry.runtime_data = coordinator
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         entry.async_on_unload(entry.add_update_listener(_async_update_options))
+        if restored:
+            entry.async_create_background_task(
+                hass,
+                coordinator.async_refresh(),
+                "Refresh restored library snapshot",
+                eager_start=False,
+            )
     except BaseException:
         # Shutdown drains writes before detach, including setup cancellation.
         if coordinator is not None:
@@ -60,7 +70,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bo
 
 async def _async_update_options(hass: HomeAssistant, entry: AxiellConfigEntry) -> None:
     """Apply the polling option without replacing the account client or identity."""
-    await entry.runtime_data.async_update_options()
+    coordinator = entry.runtime_data
+    if not coordinator.snapshot_identity_matches(entry):
+        await coordinator.async_remove_snapshot()
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    await coordinator.async_update_options()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bool:
@@ -77,6 +92,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> b
         return False
     await coordinator.async_shutdown()
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> None:
+    """Remove private snapshots even when the account is not currently loaded."""
+    if (coordinator := getattr(entry, "runtime_data", None)) is not None:
+        await coordinator.async_remove_snapshot()
+    else:
+        await SnapshotStore(hass, entry).async_remove()
+        hass.data.get(f"{DOMAIN}_cooldowns", {}).pop(entry.entry_id, None)
 
 
 class AxiellEntity(CoordinatorEntity[AxiellCoordinator]):

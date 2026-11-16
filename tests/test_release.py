@@ -17,30 +17,30 @@ SHA = "1234567890abcdef1234567890abcdef12345678"
 @pytest.mark.parametrize(
     ("tag", "version", "allowed"),
     [
-        ("v0.3.0", "0.3.0", True),
+        ("v0.6.0", "0.6.0", True),
         ("v0.0.0", "0.0.0", True),
         ("v12.34.56", "12.34.56", True),
-        ("v0.3.1", "0.3.0", False),
-        ("0.3.0", "0.3.0", False),
-        ("vv0.3.0", "0.3.0", False),
-        ("v00.3.0", "00.3.0", False),
-        ("v0.03.0", "0.03.0", False),
-        ("v0.3.00", "0.3.00", False),
-        ("v0.3.0-rc.1", "0.3.0-rc.1", False),
-        ("v0.3.0+build", "0.3.0+build", False),
-        ("v0.3.0", "v0.3.0", False),
-        ("v0.3.0", 0.3, False),
-        ("v0.3.0", None, False),
-        ("v0.3.0; touch injected", "0.3.0", False),
-        ("v0.3.0$(touch injected)", "0.3.0", False),
-        ("v0.3.0`touch injected`", "0.3.0", False),
-        ("v0.3.0\n", "0.3.0", False),
-        (" v0.3.0", "0.3.0", False),
+        ("v0.6.1", "0.6.0", False),
+        ("0.6.0", "0.6.0", False),
+        ("vv0.6.0", "0.6.0", False),
+        ("v00.6.0", "00.6.0", False),
+        ("v0.06.0", "0.06.0", False),
+        ("v0.6.00", "0.6.00", False),
+        ("v0.6.0-rc.1", "0.6.0-rc.1", False),
+        ("v0.6.0+build", "0.6.0+build", False),
+        ("v0.6.0", "v0.6.0", False),
+        ("v0.6.0", 0.3, False),
+        ("v0.6.0", None, False),
+        ("v0.6.0; touch injected", "0.6.0", False),
+        ("v0.6.0$(touch injected)", "0.6.0", False),
+        ("v0.6.0`touch injected`", "0.6.0", False),
+        ("v0.6.0\n", "0.6.0", False),
+        (" v0.6.0", "0.6.0", False),
         ("../main", "../main", False),
         ("", "", False),
-        ("-h", "0.3.0", False),
-        ("--help", "0.3.0", False),
-        ("--unsafe-private-input", "0.3.0", False),
+        ("-h", "0.6.0", False),
+        ("--help", "0.6.0", False),
+        ("--unsafe-private-input", "0.6.0", False),
     ],
 )
 def test_release_requires_canonical_tag_and_numeric_manifest(
@@ -68,7 +68,7 @@ def test_release_requires_canonical_tag_and_numeric_manifest(
     assert not (tmp_path / "injected").exists()
 
 
-@pytest.mark.parametrize("content", [None, "{", "{}", "[]", '"0.3.0"'])
+@pytest.mark.parametrize("content", [None, "{", "{}", "[]", '"0.6.0"'])
 def test_release_rejects_unreadable_manifest(tmp_path, content):
     """Missing or malformed manifest data must fail with a static error."""
     manifest = tmp_path / "manifest.json"
@@ -78,7 +78,7 @@ def test_release_rejects_unreadable_manifest(tmp_path, content):
         [
             sys.executable,
             str(ROOT / "scripts/check_release.py"),
-            "v0.3.0",
+            "v0.6.0",
             str(manifest),
         ],
         capture_output=True,
@@ -91,21 +91,21 @@ def test_release_rejects_unreadable_manifest(tmp_path, content):
 
 
 @pytest.fixture(
-    params=[("release.yaml", "0.3.0"), ("publish-0.5.1.yaml", "0.5.1")],
-    ids=["manual-release", "one-time-0.5.1"],
+    params=[("release.yaml", "0.6.0"), ("publish-0.6.0.yaml", "0.6.0")],
+    ids=["manual-release", "one-time-0.6.0"],
 )
 def release_workflow(request):
     """Keep the general release and one-time release under the same guards."""
     filename, version = request.param
     path = ROOT / ".github/workflows" / filename
     assert path.is_file(), f"Missing release workflow: {filename}"
-    return yaml.load(path.read_text(), Loader=yaml.BaseLoader), version
+    return yaml.load(path.read_text(), Loader=yaml.BaseLoader), version, filename
 
 
 @pytest.fixture
 def publish_shell(tmp_path, release_workflow):
     """Run the checked-in workflow shell with a recording fake gh, never GitHub."""
-    workflow, expected_version = release_workflow
+    workflow, expected_version, _ = release_workflow
     step = next(
         step
         for step in workflow["jobs"]["publish"]["steps"]
@@ -181,7 +181,7 @@ def test_workflow_creates_immutable_tag_then_reviewed_release(
 ):
     """Wrong tag, commit, title, notes or ordering changes the publication contract."""
     run, _ = publish_shell
-    _, version = release_workflow
+    _, version, _ = release_workflow
     result, calls = run()
     assert result.returncode == 0, result.stdout + result.stderr
     assert calls == [
@@ -211,16 +211,16 @@ def test_workflow_creates_immutable_tag_then_reviewed_release(
 @pytest.mark.parametrize(
     "version",
     [
-        "0.3.1",
+        "0.6.1",
         "0.5.2",
-        "v0.3.0",
-        "00.3.0",
-        "0.3.0-rc.1",
+        "v0.6.0",
+        "00.6.0",
+        "0.6.0-rc.1",
         "--help",
         "-h",
         "",
-        "0.3.0\n",
-        "0.3.0; touch injected",
+        "0.6.0\n",
+        "0.6.0; touch injected",
         "$(touch injected)",
         "`touch injected`",
     ],
@@ -280,28 +280,32 @@ def test_workflow_rejects_invalid_commit_before_tag_creation(publish_shell):
 
 def test_workflow_only_publishes_main_after_full_validation(release_workflow):
     """A feature ref or skipped validation must have no write-enabled path."""
-    workflow, version = release_workflow
+    workflow, version, filename = release_workflow
     validate = workflow["jobs"]["validate"]
     publish = workflow["jobs"]["publish"]
-    if version == "0.5.1":
+    if filename == "publish-0.6.0.yaml":
         assert (
             validate["if"]
             == publish["if"]
             == (
                 "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
-                "contains(github.event.head_commit.message, '[publish-v0.5.1]')"
+                "contains(github.event.head_commit.message, '[publish-v0.6.0]')"
             )
         )
         assert workflow["on"] == {
             "push": {
                 "branches": ["main"],
-                "paths": [".github/workflows/publish-0.5.1.yaml"],
+                "paths": [".github/workflows/publish-0.6.0.yaml"],
             }
         }
-        assert publish["env"] == {"RELEASE_VERSION": "0.5.1"}
+        assert publish["env"] == {"RELEASE_VERSION": "0.6.0"}
     else:
         assert validate["if"] == publish["if"] == "github.ref == 'refs/heads/main'"
         assert set(workflow["on"]) == {"workflow_dispatch"}
+        assert (
+            workflow["on"]["workflow_dispatch"]["inputs"]["version"]["default"]
+            == "0.6.0"
+        )
         assert publish["env"]["RELEASE_VERSION"] == "${{ inputs.version }}"
     assert validate["uses"] == "./.github/workflows/validate.yaml"
     assert publish["needs"] == "validate"

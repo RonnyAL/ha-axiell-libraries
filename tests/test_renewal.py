@@ -659,3 +659,53 @@ async def test_confirmation_result_exposes_only_small_safe_fields(ready):
         "expires_in": 600,
     }
     client.async_renew_loan.assert_not_awaited()
+
+
+@pytest.mark.parametrize("write_category", ["credentials", "security"])
+@pytest.mark.parametrize("retry_after", [None, 900])
+async def test_unsafe_write_withholding_survives_failed_reconciliation_and_reload(
+    ready, hass, freezer, write_category, retry_after
+):
+    from datetime import timedelta
+
+    from custom_components.axiell_libraries.snapshot import SnapshotStore
+    from custom_components.axiell_libraries.solus import SolusSecurityError
+
+    coordinator, entry, client = ready
+    error_type = (
+        SolusAuthError if write_category == "credentials" else SolusSecurityError
+    )
+    client.async_renew_loan.side_effect = error_type("PRIVATE", retry_after=retry_after)
+    client.async_get_loans.side_effect = [[loan()], SolusConnectionError("PRIVATE")]
+    await assert_error(coordinator, "outcome_unknown")
+    assert not coordinator.snapshot_available
+    persisted, category = await SnapshotStore(hass, entry).async_load()
+    assert category == write_category
+    assert persisted.fetched_at == coordinator.data.fetched_at
+    client.async_renew_loan.assert_awaited_once()
+    assert client.async_get_loans.await_count == (3 if retry_after is None else 2)
+
+    reloaded = AxiellCoordinator(hass, entry, client)
+    assert await reloaded.async_restore_snapshot()
+    assert not reloaded.snapshot_available
+    calls = client.async_get_loans.await_count
+    if retry_after is not None:
+        await reloaded.async_refresh()
+        assert client.async_get_loans.await_count == calls
+        freezer.tick(timedelta(seconds=901))
+    client.async_get_loans.side_effect = SolusConnectionError("PRIVATE")
+    await reloaded.async_refresh()
+    assert not reloaded.snapshot_available
+    client.async_get_loans.side_effect = None
+    client.async_get_loans.return_value = [loan()]
+    await reloaded.async_refresh()
+    assert reloaded.data_freshness == "fresh"
+    _, category = await SnapshotStore(hass, entry).async_load()
+    assert category is None
+    after_success = AxiellCoordinator(hass, entry, client)
+    assert await after_success.async_restore_snapshot()
+    assert after_success.snapshot_available
+    client.async_renew_loan.assert_awaited_once()
+    await coordinator.async_shutdown()
+    await reloaded.async_shutdown()
+    await after_success.async_shutdown()

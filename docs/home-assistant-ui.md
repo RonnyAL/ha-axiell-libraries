@@ -1,8 +1,8 @@
 # Home Assistant entities
 
 After adding an Axiell Libraries account under **Settings → Devices & services**,
-open its device to see **Active loans**, **Next due date**, **Overdue loans**, and
-**Library loans**. Add another integration entry for another library/card pair.
+open its device to see **Active loans**, **Next due date**, **Overdue loans**,
+**Library loans**, **Data freshness**, **Last successful refresh** and **Refresh now**. Add another integration entry for another library/card pair.
 If two devices have the same library name, rename them in Home Assistant to tell
 the accounts apart; card numbers are never included in device or entity names.
 
@@ -202,7 +202,8 @@ also an error with its sanitized message.
 After a successful write, loan data refreshes immediately. `status: renewed`
 with `refreshed: false` means the library accepted renewal but HA's subsequent
 read failed. Ordinary callers get an explicit partial-success error. Use
-**Update entity** on the account sensor; **do not renew again just to refresh**.
+**Refresh now** or **Update entity** on the account sensor; **do not renew again
+just to refresh**.
 An unknown-outcome error means the write's result could not be established;
 check the account with the library before deciding on another explicit action.
 A changed due date after reconciliation is not proof that this request succeeded.
@@ -219,16 +220,50 @@ is returned. Existing library authentication uses the stored persistent DeviceID
 Loans refresh every **six hours**, updating membership, due dates and renewal
 status. Catalogue metadata is cached for **24 hours** per account and may be
 retained stale after a temporary catalogue failure without extending its expiry.
-New records trigger enrichment; a failed record does not hide the loan. Use
-HA's **Update entity** action (`homeassistant.update_entity`) on an account's
-sensor for a manual loan refresh; it still reuses unexpired catalogue data.
+New records trigger enrichment; a failed record does not hide the loan. Press
+the account's native **Refresh now** button (**Oppdater nå** in Norwegian), or
+use HA's **Update entity** action (`homeassistant.update_entity`) on its sensor.
+Both request a loan read through the existing coordinator and reuse unexpired
+catalogue data, the same session and DeviceID. Native debounce can coalesce a
+burst into one trailing request; provider cooldowns still apply. Reads serialize
+with renewal, and unload closes the refresh control. The button never renews a
+loan or indicates renewal success.
 
-A provider failure makes entities unavailable while retaining the previous
-snapshot internally; the example card hides that stale snapshot. A successful
-empty response clears the list and displays zero loans. Credential failure
-requests reauthentication. PIN updates, reload and restart reuse the stored
-DeviceID and entry identity. Use **Reconfigure** for a proactive PIN update;
+The native button state is its **last-pressed time**, set before refresh completes.
+A queued request or failed read can therefore advance it. **Last successful
+refresh** is the timezone-aware timestamp of the last actual loan read, not the
+button time or entity `last_changed`/`last_updated`. It remains historical during
+failures, restoration and withheld content, and is unknown without a snapshot.
+**Data freshness** remains `fresh`, `stale`, or `unavailable`; a successful last
+read can still be old. Check both age and freshness.
+
+A temporary provider failure keeps the last allowed snapshot visible. A valid
+local account snapshot restores all entities coherently as stale before a
+background read; no age limit silently drops it. Without a valid snapshot, setup
+waits for a successful first read using HA's normal retry/reauthentication path.
+The first upgrade cannot restore a snapshot until a read has saved one. A
+successful empty response clears the list and displays zero loans. Credential or
+security failure withholds loan attributes and to-do content until a successful
+read; safe diagnostics and the refresh control remain visible. Reauthentication
+is still required when HA requests it. PIN updates, reload and restart reuse the
+stored DeviceID and entry identity. Use **Reconfigure** for a proactive PIN update;
 changing the card or library requires another entry.
+
+The snapshot uses a shared account Store, not per-entity `RestoreEntity` state or
+Recorder history. Counts, dates and loan details share one fetched timestamp;
+brief HA entity teardown/reload windows can still occur. Store files have private
+permissions and atomic writes, **not encryption**; local access and HA backups
+can expose normalized reading history. Raw API/auth data and renewal state are
+excluded, and restored data/consent never supplies renewal authorization. Rich
+loan attributes remain excluded from Recorder, including when restored.
+
+Unloading retains the cache; entry removal deletes it, and account identity changes
+discard it. PIN/options changes retain the account binding. Storage failure does
+not fail a successful read but can leave older history. Saves are skipped during
+HA stopping to prevent deferred writes resurrecting removed data; unsafe-account
+failures then attempt removal. If all marker writes/removals fail, the runtime
+withholding block survives reload in that process but cannot guarantee protection
+after process loss. See [privacy and recovery details](../README.md#pin-changes-and-privacy).
 
 The owner confirms live Home Assistant authentication, all three aggregate
 sensors, and Marketplace installation/update. The new structured attributes and

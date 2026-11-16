@@ -85,11 +85,19 @@
           "stale": "Stale",
           "unavailable": "Unavailable"
         }
+      },
+      "last_successful_refresh": {
+        "name": "Last successful refresh"
       }
     },
     "todo": {
       "loans": {
         "name": "Library loans"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh now"
       }
     }
   },

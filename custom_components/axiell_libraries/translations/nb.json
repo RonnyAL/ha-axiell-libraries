@@ -85,11 +85,19 @@
           "stale": "Utdatert",
           "unavailable": "Utilgjengelig"
         }
+      },
+      "last_successful_refresh": {
+        "name": "Sist vellykkede oppdatering"
       }
     },
     "todo": {
       "loans": {
         "name": "Biblioteklån"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Oppdater nå"
       }
     }
   },

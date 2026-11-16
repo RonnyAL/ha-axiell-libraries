@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+- Restore account-bound normalized loan snapshots as stale before a background
+  refresh, retaining native no-cache setup/retry and credential/security withholding.
+- Add diagnostic Last successful refresh and native Refresh now controls, preserving
+  existing account/entity IDs and read-only to-do lists. Last pressed is a request
+  time; freshness and the fetch timestamp report the read result.
+- Keep withheld loan content out of entity attributes/to-do responses; preserve
+  Recorder exclusions and document private local storage, backups and disk limits.
+
 ## 0.5.1
 
 - Classify exact catalogue body session-expiry and validation-required statuses,

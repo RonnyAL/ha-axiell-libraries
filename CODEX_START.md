@@ -13,8 +13,10 @@ repository state rather than repeating the implementation from Task 1.
 > Solus `LoginPreSession` then `LoginCheckSession`, and read-only v1. The owner
 > later authorized explicit individual renewal with informed consent; follow
 > the approved loan-renewal spec and plan. The to-do entity stays read-only.
-> The owner explicitly authorized publication of 0.5.1 on 2026-11-16. Future
-> publications and live renewal tests require separate explicit instruction;
+> The owner explicitly authorized release of 0.6.0 on 2026-11-16, superseding
+> the snapshot feature's earlier PR-only restriction for this release only. Follow
+> `docs/superpowers/specs/2026-11-16-release-060-design.md`. Later publications
+> and live renewal tests require separate explicit instruction;
 > automatic/bulk renewal remains unauthorized. Preserve device identity through
 > retries, restart and PIN updates. Use offline synthetic tests, TDD for behavior
 > changes, independent review and fresh verification.
@@ -30,22 +32,26 @@ counts and pending final gates. Use `requirements-dev.txt` and
 the discontinued custom-component harness. Installed Superpowers skills provide
 the workflow; original v1 design docs are historical.
 
-Version 0.5.1 fixes catalogue body session-expiry and validation-required
-statuses while retaining bounded polling recovery, interval options and freshness. It retains the `axiell_libraries.renew_loan` action introduced in 0.4.0. Current authorization requires control of an
+Version 0.6.0 adds account-bound snapshot restoration, a diagnostic timestamp for
+the last successful refresh and a native Refresh now button, preserving polling
+recovery, interval options, credential/security withholding and existing
+account/entity IDs. It retains the `axiell_libraries.renew_loan` action introduced
+in 0.4.0. Current authorization requires control of an
 Axiell entity on the selected account for every user invocation, including
 confirmation. Non-admin dashboard calls use the same server-side check. Default
 HA Users control all entities; hiding a dashboard/card does not restrict accounts.
 Restricting accounts requires actual HA entity permission policies.
-The canonical 0.5.1 tag is `v0.5.1`; the manifest version and release title are
-`0.5.1`. Publication of 0.5.1 is owner-authorized on 2026-11-16.
+The canonical 0.6.0 tag is `v0.6.0`; the manifest version and release title are
+`0.6.0`. Publication of 0.6.0 is owner-authorized on 2026-11-16.
 See `docs/home-assistant-ui.md` for manual, expiring confirmation IDs and unknown
-outcomes. The main-only Release workflow and the single-version 0.5.1 publication workflow
+outcomes. The main-only Release workflow and the single-version 0.6.0 publication workflow
 rerun full validation and check the exact
-input against the manifest, creates a new tag atomically, then publishes notes.
+input against the manifest, create a new tag atomically, then publish notes.
 Investigate partial publication manually; do not blindly rerun or move tags.
-Existing live authentication, aggregate sensors and Marketplace installation
-have owner verification. Live renewal/provider prompt semantics, browser covers
-and a real process restart still need separate owner-run checks. Offline tests
+Live authentication, aggregate sensors and Marketplace installation on earlier
+releases have owner verification. Current 0.6.0 installation, cache restoration
+and refresh controls still require owner verification. Live renewal/provider
+prompt semantics, browser covers and a real process restart still need separate owner-run checks. Offline tests
 do not establish upstream behavior or public availability.
 
 Optional live validation belongs to the owner in their HA UI: enter card/PIN

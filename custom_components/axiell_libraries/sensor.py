@@ -1,6 +1,6 @@
 """Read-only loan counts and next due date for each library account."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -15,6 +15,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import AxiellConfigEntry, AxiellEntity
 
 _DESCRIPTIONS = (
+    SensorEntityDescription(
+        key="last_successful_refresh",
+        translation_key="last_successful_refresh",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
     SensorEntityDescription(
         key="data_freshness",
         translation_key="data_freshness",
@@ -61,7 +67,10 @@ class AxiellSensor(AxiellEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Expose the current issued copies only on the active-loan count."""
         attributes = self.coordinator.freshness_attributes
-        if self.entity_description.key == "active_loans" and self.coordinator.data:
+        if (
+            self.entity_description.key == "active_loans"
+            and self.coordinator.snapshot_available
+        ):
             attributes["loans"] = [
                 loan.as_dict() for loan in self.coordinator.data.loans
             ]
@@ -69,16 +78,18 @@ class AxiellSensor(AxiellEntity, SensorEntity):
 
     @property
     def available(self) -> bool:
-        if self.entity_description.key == "data_freshness":
+        if self.entity_description.key in {"data_freshness", "last_successful_refresh"}:
             return True
         return super().available
 
     @property
-    def native_value(self) -> int | str | date | None:
+    def native_value(self) -> int | str | date | datetime | None:
         if self.entity_description.key == "data_freshness":
             return self.coordinator.data_freshness
         if self.coordinator.data is None:
             return None
+        if self.entity_description.key == "last_successful_refresh":
+            return self.coordinator.data.fetched_at
         loans = self.coordinator.data.loans
         if self.entity_description.key == "active_loans":
             return len(loans)

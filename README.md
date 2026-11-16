@@ -6,10 +6,12 @@ its own Home Assistant config entry, persistent DeviceID, session and entities.
 
 This uses an **unofficial, reverse-engineered API**. Runtime targets are
 Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
-Python **3.14.7 locally / 3.14.10 in CI**. Version **0.5.1** fixes catalogue body-status handling for session expiry and
-validation requirements, preserving bounded recovery and single-write renewal.
-The owner confirms live Home Assistant authentication, all three aggregate
-sensors, and Marketplace installation/update. New structured loan attributes
+Python **3.14.7 locally / 3.14.10 in CI**. Version **0.6.0** adds persistent loan
+snapshots, a diagnostic refresh timestamp and a native Refresh now button,
+preserving bounded recovery and single-write renewal.
+The owner confirmed live Home Assistant authentication, all three aggregate
+sensors, and Marketplace installation/update on earlier releases. Installation
+and live behavior of 0.6.0 remain owner-run checks. New structured loan attributes
 and dashboard templates have offline coverage; browser rendering and covers
 still need an owner-run check. See [validation evidence](docs/validation.md).
 
@@ -17,8 +19,9 @@ still need an owner-run check. See [validation evidence](docs/validation.md).
 
 The owner has exercised Marketplace installation/update and account setup.
 Check the new loan details after installing this change and restarting HA.
-Version `0.5.1` preserves existing accounts, DeviceIDs and entity IDs. It fixes catalogue session-expiry
-and validation-required responses while retaining recovery and freshness features.
+Version `0.6.0` preserves existing accounts, DeviceIDs and entity IDs. It restores
+previously saved loan snapshots as stale while a background read refreshes them;
+the first upgrade needs a successful read before a snapshot exists.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
    **Settings → Marketplace → Add from link** and enter
@@ -70,8 +73,9 @@ Credential validation and entry setup may each log in, using the same DeviceID.
 ## Use the entities
 
 Each entry exposes **Active loans**, **Next due date**, **Overdue loans**, a
-read-only **Library loans** to-do list, and a diagnostic **Data freshness** sensor. Use standard dashboard sensor/to-do cards
-or **To-do lists**; no custom dashboard card is required. Loans retain separate
+read-only **Library loans** to-do list, diagnostic **Data freshness** and
+**Last successful refresh** sensors, and a **Refresh now** button. Use standard
+dashboard sensor/to-do cards or **To-do lists**; no custom dashboard card is required. Loans retain separate
 IDs and due dates even when titles match. The date sensor uses the earliest
 known due date, including overdue loans, and is unknown when none is known.
 Overdue count uses the provider's flags. Missing dates remain unknown.
@@ -92,8 +96,12 @@ Change **Update interval (minutes)** in the entry's **Configure** options under
 with **360 minutes** recommended. Changes apply to the running coordinator without
 reload, another login, changed entity IDs, or a new DeviceID. Catalogue records
 have a per-entry **24-hour** cache bounded to 256 records, with at most four
-concurrent catalogue requests. HA's standard entity update action requests a
-manual refresh, subject to a provider cooldown.
+concurrent catalogue requests. Use **Refresh now** or HA's standard entity
+update action for a manual refresh, subject to native debouncing and provider
+cooldowns. The button reuses this account's coordinator, session and DeviceID.
+Its last-pressed time records the request, before completion, even when a request
+is queued or fails. Check **Last successful refresh** and **Data freshness** for
+the actual result; pressing the button never renews loans.
 
 After a temporary failed refresh, the last successful loans and to-do list remain
 visible. Every entity exposes `last_successful_refresh`, `data_stale`, and a safe
@@ -103,9 +111,28 @@ read failed, or `unavailable` when no usable snapshot exists or credentials/secu
 failed. Freshness describes the last completed read, not continuous provider
 connectivity; check the timestamp for age, especially when polling is disabled.
 A successfully fetched empty list is **zero loans**; failed reads never invent
-zero loans. Cached snapshots are held in memory, not restored across HA restarts.
-Partial catalogue failure keeps loans visible with available metadata; the refresh
-timestamp describes loans, not the age of optional catalogue details.
+zero loans. **Last successful refresh** is the historical, timezone-aware loan
+fetch time, remains visible when loan content is withheld, and is unknown without
+a snapshot. Partial catalogue failure keeps loans visible with available metadata;
+the refresh timestamp describes loans, not the age of optional catalogue details.
+
+The integration saves a coherent normalized display snapshot in Home Assistant's
+local Store after successful loan reads, including a confirmed empty list. On
+reload/restart, a valid account-bound snapshot immediately restores the counts,
+loan details and to-do list as **stale**, then a background read attempts to
+replace it. No maximum age silently discards known loans: check the timestamp.
+With no valid cache, setup still needs a successful first read and uses HA's
+normal retry/reauthentication behavior. The first upgrade has no stored snapshot
+until a successful read; Recorder history cannot supply it. This shared account
+Store restores all entities coherently, rather than using individual entities'
+`RestoreEntity` state. HA can briefly remove entities during reload/teardown;
+restoration does not eliminate those windows.
+
+Credential or security failures withhold loan content until a successful read,
+including across reload/restart when the withholding marker is durably stored.
+Other failures keep allowed stale content visible. Restored loans and old renewal
+consent never authorize renewal: renewal still performs its fresh preflight and
+requires current, explicit consent.
 
 Recoverable failures get **three early recovery cycles**, waiting **60, 120, and
 240 seconds plus 0–25% jitter**. After that, normal polling resumes; only a
@@ -153,6 +180,23 @@ and cookies stay in memory in isolated per-account sessions. Requests have a
 and never automatically repeat a renewal write. Read recovery uses the bounded
 scheduler described above and always reuses the existing DeviceID.
 
+The per-account snapshot under HA's `.storage` contains allowlisted normalized
+loan/catalogue display fields, the historical fetch timestamp, an account identity
+hash and a finite withholding category. It excludes raw API/authentication data
+and renewal state. Core Store uses private file permissions and atomic writes;
+this is **not encryption**. Protect local HA access and backups, which can contain
+reading history. Recorder still excludes rich loan attributes; that exclusion
+does not prevent the separate local snapshot or its backups.
+
+Unloading an account retains its snapshot; removing the entry deletes it. A changed
+account identity discards the old cache; PIN/options changes retain it. Storage
+failure does not fail a successful read and may leave an older stored snapshot.
+A read finishing while HA is stopping also may leave an older snapshot, because
+saves are skipped to avoid deferred writes recreating removed data. Unsafe
+credential/security failures during stopping attempt cache removal. If every
+marker write and removal fails, a runtime block protects reloads in that HA
+process, but cannot guarantee withholding after process loss.
+
 Do not enable or share HTTP traces containing private data. Do not put card
 numbers, PINs, tokens, cookies, account responses or DeviceIDs into chat, issues,
 logs or repository files. Do not commit APKs, captures, decompiled code or raw
@@ -176,8 +220,9 @@ network bodies or enable credential-bearing debug logging.
 1. Install, restart, add your library through discovery or exact LocationID and
    sign in. Check current loan titles and dates against your library account.
    Check optional metadata/cover links where available.
-2. Request a manual entity update. Check that dates remain correct. Try adding
-   the same library/card again and confirm HA rejects the duplicate. If desired,
+2. Press **Refresh now** and check **Last successful refresh** and **Data freshness**.
+   Request a manual entity update if desired. Check that dates remain correct.
+   Try adding the same library/card again and confirm HA rejects the duplicate. If desired,
    add a second account and confirm its entities are separate.
 3. Reload the entry and restart HA. Check that the same entities return. Do not
    inspect, copy or share stored credentials to perform this check.
@@ -214,7 +259,7 @@ python3.14 -m venv /tmp/axiell-dev-2026110
 
 docker run --rm -v "$PWD:/github/workspace:ro" ghcr.io/home-assistant/hassfest:latest
 actionlint
-/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.5.1
+/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.6.0
 git diff --check
 ```
 
@@ -233,21 +278,21 @@ for local and hosted evidence and the remaining owner-run checks.
 
 ## Maintainer releases
 
-The canonical release identifiers are manifest `0.5.1`, Git tag `v0.5.1`
-and release title `0.5.1`. The owner has explicitly authorized publication of
-0.5.1 on November 16, 2026; future publications and live renewal tests require
+The canonical release identifiers are manifest `0.6.0`, Git tag `v0.6.0`
+and release title `0.6.0`. The owner has explicitly authorized publication of
+0.6.0 on November 16, 2026; future publications and live renewal tests require
 separate explicit instruction. Preserve repository visibility.
 
-For the authorized 0.5.1 publication, a one-time workflow additionally requires
-an explicit `[publish-v0.5.1]` marker on the merge commit, a change to that workflow,
-and `main`; it runs the same complete validation before publishing only 0.5.1.
-The ordinary manual workflow remains available for later authorized releases.
-After review and merge to `main`, a maintainer may dispatch
-**Actions → Release** with numeric input `0.5.1`. Full reusable validation,
+For the authorized 0.6.0 publication, a one-time workflow additionally requires
+an explicit `[publish-v0.6.0]` marker on the merge commit, a change to that workflow,
+and `main`; it runs the same complete validation before publishing only 0.6.0.
+The ordinary manual workflow remains available as an alternative on `main`,
+using **Actions → Release** with numeric input `0.6.0`. Inspect publication state
+before dispatching after a merge that triggered the one-time workflow. Full reusable validation,
 tag/manifest agreement and reviewed notes gate atomic tag creation at the
 validated dispatch SHA. Existing tags are refused. No attached ZIP is required.
 See [release preparation and failure recovery](docs/releases.md) and the
-[0.5.1 notes](docs/releases/0.5.1.md). If publishing fails after tag creation,
+[0.6.0 notes](docs/releases/0.6.0.md). If publishing fails after tag creation,
 inspect the validated SHA and repository state before authorized recovery;
 never blindly rerun or move/delete the tag. Direct-link update checks require
 a GitHub connection and can take up to the documented 48-hour interval. This

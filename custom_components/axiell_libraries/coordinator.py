@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, DOMAIN
 from .models import CatalogueRecord, LibrarySnapshot, Loan
 from .renewal import RenewalError, RenewalManager, RenewalResult
+from .snapshot import SnapshotStore
 from .solus import (
     SolusAuthError,
     SolusClient,
@@ -68,6 +69,8 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
                 minutes=entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
             ),
         )
+        self._snapshots = SnapshotStore(hass, entry)
+        self._withheld_category = self._snapshots.withheld
         self._client = client
         self._entry = entry
         self._operation_lock = asyncio.Lock()
@@ -104,6 +107,34 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
             )
 
     @property
+    def closing(self) -> bool:
+        """Whether new entity actions are gated for unload/removal."""
+        return self._closing
+
+    def snapshot_identity_matches(self, entry: ConfigEntry) -> bool:
+        """Detect account changes without treating PIN/options as a new identity."""
+        return self._snapshots.matches_identity(entry)
+
+    async def async_restore_snapshot(self) -> bool:
+        """Load coherent history without claiming a successful provider read."""
+        restored = await self._snapshots.async_load()
+        self._withheld_category = self._snapshots.withheld
+        if restored is None:
+            return False
+        self.data, self._withheld_category = restored
+        self.last_update_success = False
+        if self._withheld_category:
+            self._error_category = self._withheld_category
+            self._last_update_error = f"{self._withheld_category}/restored"
+        return True
+
+    async def async_remove_snapshot(self) -> None:
+        """Drain operations before deleting data; no late save can resurrect it."""
+        await self.async_shutdown()
+        await _async_drain(asyncio.create_task(self._snapshots.async_remove()))
+        self._cooldowns.pop(self._entry.entry_id, None)
+
+    @property
     def last_update_error(self) -> str | None:
         """A finite category/reference; never expose provider exception text."""
         return self._last_update_error
@@ -111,10 +142,15 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
     @property
     def snapshot_available(self) -> bool:
         """A retained snapshot remains usable except after unsafe/account failures."""
-        return self.data is not None and self._error_category not in {
-            "credentials",
-            "security",
-        }
+        return (
+            self.data is not None
+            and self._withheld_category is None
+            and self._error_category
+            not in {
+                "credentials",
+                "security",
+            }
+        )
 
     @property
     def freshness_attributes(self) -> dict:
@@ -198,11 +234,21 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
         self._recovery_deadline = monotonic() + delay
         return UpdateFailed(self._failure_message, retry_after=delay + 1)
 
-    @callback
-    def async_note_write_failure(self, error: SolusError) -> None:
-        """Honor a write's provider cooldown before read-only reconciliation."""
+    async def async_note_write_failure(self, error: SolusError) -> None:
+        """Retain cooldown and unsafe-account policy before reconciliation."""
         if error.retry_after is not None:
             self._failed_refresh(error)
+        await self._async_withhold_snapshot(error.category)
+
+    async def _async_withhold_snapshot(self, category: str) -> None:
+        """Apply the same drained policy to read and renewal-write failures."""
+        if category in {"credentials", "security"}:
+            self._withheld_category = category
+            await _async_drain(
+                asyncio.create_task(
+                    self._snapshots.async_mark_withheld(self.data, category)
+                )
+            )
 
     async def _async_login(self) -> None:
         """Reuse stored identity; failed recovery stays eligible for a later login."""
@@ -301,11 +347,14 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
                 snapshot = await self._async_fetch_snapshot()
         except SolusError as error:
             failure = self._failed_refresh(error)
+            await self._async_withhold_snapshot(error.category)
             if isinstance(error, SolusSessionExpired):
                 self._needs_login = True
             elif isinstance(error, SolusAuthError):
                 raise ConfigEntryAuthFailed(self._failure_message) from None
             raise failure from None
+        await _async_drain(asyncio.create_task(self._snapshots.async_save(snapshot)))
+        self._withheld_category = None
         self._cooldowns.pop(self._entry.entry_id, None)
         self._recovery_attempts = 0
         self._recovery_deadline = None
