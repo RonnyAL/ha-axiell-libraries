@@ -50,24 +50,24 @@ Keep the snapshot helpers separate from transport and pure public model fields.
 Engineering may choose exact private helper names and reasonable documented size
 bounds; public lifecycle names above remain stable for Task 2.
 
-- [ ] Add meaningful failing tests for codec roundtrip/public-field allowlisting,
+- [x] Add meaningful failing tests for codec roundtrip/public-field allowlisting,
   aware timestamp/dates/types/duplicates/corruption/identity isolation/empty data.
   Exercise private atomic Store behavior and cleanup using offline HA storage.
-- [ ] Add failing cold setup/reload tests with saved data and a blocked provider
+- [x] Add failing cold setup/reload tests with saved data and a blocked provider
   coroutine: entities must be forwarded stale before the read is released. Test
   eventual success, transient first failure/recovery, empty replacement, no-cache
   setup retry, independent accounts, removal and identity changes.
-- [ ] Add auth/security sticky withholding, failed marker-save/removal fallback,
+- [x] Add auth/security sticky withholding, failed marker-save/removal fallback,
   save failure not corrupting provider freshness, cancellation/drain and renewal
   fresh-preflight/no-consent-restoration regressions. Read Store's public behavior:
   disk write errors may be swallowed, so marker durability needs verification.
-- [ ] Run new tests RED before production edits. Implement strict storage codec,
+- [x] Run new tests RED before production edits. Implement strict storage codec,
   common successful-read persistence, restored-stale initialization, entry-owned
   non-eager background refresh after forwarding, normal no-cache first refresh,
   removal/identity cleanup and sticky withholding with finite per-process fallback.
-- [ ] Await/drain storage writes under existing operation ownership; use no delayed
+- [x] Await/drain storage writes under existing operation ownership; use no delayed
   save callbacks that can resurrect removed data. Do not log exception payloads.
-- [ ] Run focused/full available tests, Ruff/diff checks and commit verified work.
+- [x] Run focused/full available tests, Ruff/diff checks and commit verified work.
   Document actual environment limits; leave UI additions for Task 2.
 
 ### Task 2: Timestamp sensor, refresh button and user-facing privacy contract
@@ -79,23 +79,23 @@ README.md, CHANGELOG.md and docs/validation.md.
 native coordinator async_request_refresh, snapshot_available and diagnostics.
 **Produces:** Stable new keys last_successful_refresh and refresh, no ID changes.
 
-- [ ] Add failing timestamp diagnostic tests: TIMESTAMP, aware fetched_at, same
+- [x] Add failing timestamp diagnostic tests: TIMESTAMP, aware fetched_at, same
   account device, None without data, unchanged across failures/restoration and
   visible when content is withheld. Existing data_freshness enum stays unchanged.
-- [ ] Add failing ButtonEntity tests for normal press, debounced bursts, stale
+- [x] Add failing ButtonEntity tests for normal press, debounced bursts, stale
   startup, concurrent renewal, provider cooldown and unload. Assert no new client,
   identity or LoanRenew; no success inferred from press or request submission.
-- [ ] Implement native button Refresh now / Oppdater nå, mdi:refresh, calling
+- [x] Implement native button Refresh now / Oppdater nå, mdi:refresh, calling
   async_request_refresh only; let native debounce and coordinator lock/cooldown
   govern requests. Timestamp derives directly from snapshot, never entity state
   metadata. Update platforms/translations and existing entity-count expectations.
-- [ ] Hide loan attributes/to-do content when snapshot_available is false; keep
+- [x] Hide loan attributes/to-do content when snapshot_available is false; keep
   stale-but-allowed content coherent. Test Recorder exclusion on restored data.
-- [ ] Document Store versus RestoreEntity, cached/no-cache startup, first-upgrade
+- [x] Document Store versus RestoreEntity, cached/no-cache startup, first-upgrade
   limitation, possible brief HA teardown windows, local/private-not-encrypted
   cache/backups, removal/identity rules, disk-failure limits, stale age and button
   last-pressed versus actual successful fetch. Never promise renewal success.
-- [ ] Run focused/full available tests, Ruff/diff checks; commit verified work.
+- [x] Run focused/full available tests, Ruff/diff checks; commit verified work.
   Update validation with precise RED/GREEN results and remaining target CI gates.
 
 After both tasks and independent review, upload the feature branch from the

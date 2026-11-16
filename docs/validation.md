@@ -53,8 +53,24 @@ the successful checks. Python 3.14 / Core 2026.9.3 with a custom harness alias i
 supplemental evidence only. The older Core lacks Marketplace, and sandbox socket
 binding blocks the two excluded cookie-transport cases. Full supported Core
 2026.11.0/2026.11.1 suites, Marketplace/socket cases, pinned Ruff 0.17.5 and
-hassfest remain target CI gates for the reviewed PR revision. Dependency/network
-installs were not retried and repository requirements/gates were not weakened.
+hassfest run on [PR #10](https://github.com/RonnyAL/ha-axiell-libraries/pull/10).
+The PR description and checks record the latest authoritative results for its
+current revision. Dependency/network installs were not retried locally and
+repository requirements/gates were not weakened.
+
+The first supported CI run produced **872 passed, 1 failed** on each version.
+The disk roundtrip test restored the older harness's Store-method mocks, but the
+official November harness instead replaces the underlying `_FileStoreIO`
+factory with memory storage. The test-only correction restores the real factory
+after fixture setup, keeping actual atomic-write, 0600 permissions, independent
+load and disk-removal assertions. Shutdown tests now also assert that the initial
+file exists. The corrected snapshot suite passed **38 tests** locally; production
+code was unchanged. No failed test was skipped or weakened.
+
+Both implementation tasks and the complete feature branch received independent
+review. Review fixes cover deferred shutdown writes and sticky withholding after
+renewal-write credential/security errors; their six regression cases failed
+before the fixes and passed afterward. No source-review findings remain open.
 
 Exact November Core storage/coordinator/button APIs were checked separately.
 Native button state advances before completion, and debounce may return before

@@ -9,6 +9,7 @@ from types import MappingProxyType
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.helpers import storage
 from homeassistant.helpers.storage import Store
 
 from custom_components.axiell_libraries import async_setup_entry
@@ -25,8 +26,20 @@ from tests.test_coordinator import setup_coordinator as setup_coordinator
 REAL_STORE_LOAD = Store._async_load
 REAL_STORE_WRITE = Store._async_write_data
 REAL_STORE_REMOVE = Store.async_remove
-
+# November's official harness replaces this factory; older supplemental Core
+# instead patches Store methods and has no separate I/O class.
+REAL_FILE_STORE_IO = getattr(storage, "_FileStoreIO", None)
 NOW = datetime(2026, 11, 13, tzinfo=UTC)
+
+
+@pytest.fixture
+def real_file_store_io(hass_storage):
+    """Use actual disk I/O after the harness installs its storage fixture."""
+    if REAL_FILE_STORE_IO is None:
+        yield
+        return
+    with patch.object(storage, "_FileStoreIO", REAL_FILE_STORE_IO):
+        yield
 
 
 def snapshot():
@@ -243,7 +256,7 @@ async def test_incompatible_store_envelope_is_removed(
 
 
 async def test_private_atomic_disk_roundtrip_and_remove(
-    setup_coordinator, hass, tmp_path
+    setup_coordinator, hass, tmp_path, real_file_store_io
 ):
     from homeassistant.util.file import write_utf8_file_atomic
 
@@ -486,7 +499,7 @@ async def test_restore_never_reuses_renewal_consent_and_always_fresh_preflights(
 
 @pytest.mark.parametrize("final_action", ["remove", "withhold"])
 async def test_stopping_old_store_wrappers_cannot_resurrect_removed_cache(
-    setup_coordinator, hass, tmp_path, final_action
+    setup_coordinator, hass, tmp_path, final_action, real_file_store_io
 ):
     from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
     from homeassistant.core import CoreState
@@ -501,6 +514,8 @@ async def test_stopping_old_store_wrappers_cannot_resurrect_removed_cache(
     ):
         old_wrapper = store_for(hass, entry)
         await old_wrapper.async_save(snapshot())
+        path = tmp_path / ".storage" / f"{DOMAIN}.{entry.entry_id}.snapshot"
+        assert await hass.async_add_executor_job(path.exists)
         try:
             hass.set_state(CoreState.stopping)
             # A wrapper retained by an unloaded coordinator must not leave a
@@ -514,7 +529,6 @@ async def test_stopping_old_store_wrappers_cannot_resurrect_removed_cache(
                 await store_for(hass, entry).async_remove()
             hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
             await hass.async_block_till_done(wait_background_tasks=True)
-            path = tmp_path / ".storage" / f"{DOMAIN}.{entry.entry_id}.snapshot"
             assert not await hass.async_add_executor_job(path.exists)
         finally:
             hass.set_state(old_state)
