@@ -148,6 +148,7 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
             return (
                 "invalid_auth"
                 if isinstance(error, solus.SolusAuthError)
+                and not isinstance(error, solus.SolusSessionExpired)
                 else "cannot_connect"
             )
         return None

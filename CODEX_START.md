@@ -13,7 +13,7 @@ repository state rather than repeating the implementation from Task 1.
 > Solus `LoginPreSession` then `LoginCheckSession`, and read-only v1. The owner
 > later authorized explicit individual renewal with informed consent; follow
 > the approved loan-renewal spec and plan. The to-do entity stays read-only.
-> The owner explicitly authorized publication of 0.5.0 on 2026-11-15. Future
+> The owner explicitly authorized publication of 0.5.1 on 2026-11-16. Future
 > publications and live renewal tests require separate explicit instruction;
 > automatic/bulk renewal remains unauthorized. Preserve device identity through
 > retries, restart and PIN updates. Use offline synthetic tests, TDD for behavior
@@ -30,16 +30,16 @@ counts and pending final gates. Use `requirements-dev.txt` and
 the discontinued custom-component harness. Installed Superpowers skills provide
 the workflow; original v1 design docs are historical.
 
-Version 0.5.0 adds bounded polling recovery, live interval options and explicit
-freshness. It retains the `axiell_libraries.renew_loan` action introduced in 0.4.0. Current authorization requires control of an
+Version 0.5.1 fixes catalogue body session-expiry and validation-required
+statuses while retaining bounded polling recovery, interval options and freshness. It retains the `axiell_libraries.renew_loan` action introduced in 0.4.0. Current authorization requires control of an
 Axiell entity on the selected account for every user invocation, including
 confirmation. Non-admin dashboard calls use the same server-side check. Default
 HA Users control all entities; hiding a dashboard/card does not restrict accounts.
 Restricting accounts requires actual HA entity permission policies.
-The canonical 0.5.0 tag is `v0.5.0`; the manifest version and release title are
-`0.5.0`. Publication of 0.5.0 is owner-authorized on 2026-11-15.
+The canonical 0.5.1 tag is `v0.5.1`; the manifest version and release title are
+`0.5.1`. Publication of 0.5.1 is owner-authorized on 2026-11-16.
 See `docs/home-assistant-ui.md` for manual, expiring confirmation IDs and unknown
-outcomes. The main-only Release workflow and the single-version 0.5.0 publication workflow
+outcomes. The main-only Release workflow and the single-version 0.5.1 publication workflow
 rerun full validation and check the exact
 input against the manifest, creates a new tag atomically, then publishes notes.
 Investigate partial publication manually; do not blindly rerun or move tags.

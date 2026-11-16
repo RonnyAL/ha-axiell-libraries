@@ -1,9 +1,9 @@
-name: Publish authorized 0.5.0
+name: Publish authorized 0.5.1
 
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/publish-0.5.0.yaml]
+    paths: [.github/workflows/publish-0.5.1.yaml]
 
 permissions: {}
 
@@ -15,7 +15,7 @@ jobs:
   validate:
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      contains(github.event.head_commit.message, '[publish-v0.5.0]')
+      contains(github.event.head_commit.message, '[publish-v0.5.1]')
     permissions:
       contents: read
     uses: ./.github/workflows/validate.yaml
@@ -23,13 +23,13 @@ jobs:
   publish:
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      contains(github.event.head_commit.message, '[publish-v0.5.0]')
+      contains(github.event.head_commit.message, '[publish-v0.5.1]')
     needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      RELEASE_VERSION: "0.5.0"
+      RELEASE_VERSION: "0.5.1"
     steps:
       - uses: actions/checkout@v7.0.1
         with:
