@@ -7,7 +7,150 @@ library/card, persistent DeviceID, initially read-only Solus access, nearby disc
 manual LocationID. No redesign approval was needed. The original six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: account-scoped renewal authorization (unreleased)
+## Current: 0.5.0 release preparation
+
+Supported-runtime CI passed on 2026-11-16 for candidate
+`bd719a74933cc898127f0415980fd26eed6488db` in
+[PR #8 validation](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43831633307):
+
+- Python 3.14.10, Core and official `pytest-homeassistant` 2026.11.0:
+  **760 passed**, 5 dependency deprecation warnings, 14.80 seconds.
+- Python 3.14.10, Core and official `pytest-homeassistant` 2026.11.1:
+  **760 passed**, 5 dependency deprecation warnings, 12.49 seconds.
+- Both full suites include Marketplace and real localhost cookie isolation;
+  no tests were excluded or deselected.
+- Pinned Ruff 0.17.5 check and format passed (57 files); hassfest passed.
+
+This closes the supported-runtime validation gaps described in the historical
+implementation evidence below. Live provider assumptions remain unverified.
+The final PR revision must pass CI again; publication repeats validation on the
+exact main commit before creating the tag and release.
+
+The owner explicitly requested release on 2026-11-15 after the implementation
+report below. Prepared manifest/tag/title are 0.5.0/v0.5.0/0.5.0, with reviewed
+notes and Marketplace install/upgrade assertions for the new version.
+The existing manual Release workflow is unchanged. A one-time workflow fixed to
+0.5.0 additionally requires main, a change to its own workflow file and the explicit
+`[publish-v0.5.0]` merge marker, with full reusable validation before publication.
+This supports the authorized release through the available GitHub connector;
+local CLI network access and a connector workflow-dispatch action are unavailable.
+Independent publication-path review found no must-fix issues. Its real shell tests
+run with a fake gh: **75 passed**. Existing-tag, wrong-version, missing-note and
+invalid-SHA cases fail before publication. A partially created tag is never moved
+or silently reused. Full supported-version CI, Marketplace and hassfest must pass
+on the candidate before merge; the publication job repeats those gates.
+No Home Assistant deployment or live library operation is part of publication.
+
+## Implementation-stage evidence: polling recovery, options and freshness
+
+Implemented in the isolated `fix/polling-recovery` worktree from `88ceac3`.
+The user requested investigation, implementation, offline tests and verification;
+no deployment, release or live library operation was requested or performed.
+
+### Incident evidence and limits
+
+The connected HA system log was read without changing configuration. It retains
+one `custom_components.axiell_libraries.coordinator` error at **2026-11-15
+04:51:36 Europe/Oslo**, count 1, with the supplied generic message and an empty
+exception field. A bounded recent raw-log query added no evidence. The owner
+reports manual reload around 10:52 restoring six loans. No sensitive log content,
+account responses or credentials were copied into this repository.
+
+The original coordinator discarded all Solus failure categories, retained a failed
+snapshot internally but made CoordinatorEntity entities unavailable, and scheduled
+its next poll six hours later. This explains a plausible duration/availability
+mechanism, not the initiating cause. A second session expiry incorrectly requested
+reauthentication; transient login and protocol failures were indistinguishable in
+logs. Optional catalogue security errors were swallowed as ordinary enrichment
+failures. Transport outage, upstream HTTP errors, a rejected/expired session,
+malformed response, or strict routing rejection remain possible triggers. The
+six-hour timing alone cannot rank them, establish whether a scheduled 10:51 retry
+ran, or prove that reload fixed a session. **The November 15 root cause remains
+unknown.** New finite category/stage/reason/status diagnostics support a future
+investigation without logging raw provider data.
+
+### Implementation and task evidence
+
+| Plan task | Files and resulting behavior | Offline evidence |
+| --- | --- | --- |
+| Solus classifications | `solus.py`, `test_solus_recovery.py`, protocol docs: transport/timeout/rate_limit/server/credentials/session/protocol/security; finite safe references, Retry-After seconds/date, TLS safety; no write replay | 76 new cases; focused transport/auth/renewal suite 288 passed, 2 restricted loopback cases deselected |
+| Options | `const.py`, `config_flow.py`, strings/en/nb, `test_options.py`, config-flow expectations: strict integer 30–1440min, default 360, preserved options/data | 14 meaningful RED failures then 14 passes; config/options regression 81 passed |
+| Coordinator and entities | `coordinator.py`, `__init__.py`, `sensor.py`, `renewal.py`, coordinator/entity/renewal/recovery tests: Core scheduler, three early recoveries, stale snapshots, live options, serialized renewal and cooldown reconciliation | Stale-availability test failed before implementation; independent review reproduced cooldown defects; final 19 recovery cases plus 3 independent probes 22 passed |
+| Documentation and validation | README, changelog, protocol, design/plan and this ledger | Full available suite 716 passed; Ruff/format/diff/release consistency passed; supported-runtime matrix and hassfest blocked as below |
+
+Recovery cycles wait 60, 120, 240 seconds plus uniform 0–25% jitter. After three,
+normal configured polling resumes until a successful snapshot resets the budget.
+Each cycle has at most one session-expiry relogin/reread, in addition to an initial
+login if needed; a valid cooldown defers that login too. Security and permanent
+HTTP errors have no accelerated retries. Only credential rejection requests
+reauthentication. Core's existing setup backoff handles failures before the first
+snapshot, with provider cooldown hints passed through. Option changes do not
+reload or log in; all existing entity IDs and persistent DeviceIDs are retained.
+
+`Retry-After` lower bounds survive manual refreshes, options, explicit reloads and
+renewal reconciliation. Concurrent catalogue requests settle, every cooldown is
+retained, and rate limits prevent expiry-triggered relogin. The process-local
+cooldown map stores only a deadline and safe reference per entry; HA restart clears
+it. No account/session data is persisted there. No renewal request is replayed.
+
+Freshness means the last completed authoritative loan read succeeded or failed;
+`last_successful_refresh` always provides its age. Temporary failures retain the
+last snapshot with explicit stale state. Credential/security failures make loan
+entities unavailable, while the diagnostic sensor stays visible. Only a successful
+empty list yields zero. Snapshots and catalogue metadata remain memory-only.
+
+### Verification environment and remaining gates
+
+Pinned Python 3.14/Core+official harness 2026.11.1 and 2026.11.0 environments were
+not available. Installing `requirements-dev.txt` failed because sandbox DNS could
+not reach PyPI; the local cache lacks the pinned packages. Requirements, test
+imports and CI matrix were **not weakened**. The exact supported Core source was
+read via the GitHub connector: both
+[2026.11.0 coordinator](https://github.com/home-assistant/core/blob/2026.11.0/homeassistant/helpers/update_coordinator.py)
+and
+[2026.11.1 coordinator](https://github.com/home-assistant/core/blob/2026.11.1/homeassistant/helpers/update_coordinator.py)
+retain the scheduler API used here and forward first-refresh retry_after to
+ConfigEntryNotReady. That source check is not runtime verification.
+
+Supplemental checks used an existing Python 3.14.7/Core 2026.9.3 environment,
+pytest 9.0.3, aiohttp 3.14.3 and its installed older custom-component harness 0.13.366.
+Scratch files in `/tmp/axiell-supplemental` alias the harness helper namespace and
+load its custom-integration fixture. Standard selector waits are bounded to 10 ms
+so queued executor callbacks can run despite denied self-pipe wakeups; real threads
+and socket restrictions remain in place. Upstream aioresponses 0.7.9 source was
+retrieved through the read-only GitHub connector into scratch storage. None of
+these test-environment accommodations are shipped with the integration.
+
+The unchanged baseline in this environment was 605 passed and 2 failures, with
+Marketplace excluded because September Core lacks that module. Both failures
+were `test_real_cookie_transport_isolated_in_ha_owned_sessions[True/False]`, which
+need localhost sockets denied by the sandbox. The final unfiltered suite likewise
+cannot collect `tests/test_marketplace.py`. Final available regression command:
+
+```text
+$ /tmp/axiell-supplemental/run-tests --ignore=tests/test_marketplace.py -k 'not test_real_cookie_transport_isolated_in_ha_owned_sessions' -q
+716 passed, 2 deselected in 17.45s
+$ ruff check .                         # installed Ruff 0.16.8
+All checks passed!
+$ ruff format --check .
+55 files already formatted
+$ git diff --check
+(no output, exit 0)
+$ python3.14 scripts/check_release.py v0.4.0
+Release tag and manifest agree: 0.4.0
+$ docker run --rm -v /home/ronny/axiell/axiell-recovery:/github/workspace:ro ghcr.io/home-assistant/hassfest:latest
+permission denied while trying to connect to the docker API
+```
+
+The full supported 2026.11.0/2026.11.1 matrix, two localhost cookie cases,
+Marketplace, pinned Ruff 0.17.5 and hassfest remain required external/CI checks.
+Supplemental results do not establish September support or November compatibility.
+No live renewal, library login, recovery deployment or browser options check was
+performed. JSON expiry/error codes remain unverified provider assumptions; unknown
+payloads deliberately remain protocol errors. Next: run the existing CI matrix and
+hassfest in the supported environment before merging or deploying this change.
+
+## Previous: account-scoped renewal authorization (unreleased)
 
 The owner requested non-admin household renewal through the existing action.
 The previous `async_register_admin_service` wrapper rejected every non-admin

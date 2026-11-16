@@ -6,9 +6,8 @@ its own Home Assistant config entry, persistent DeviceID, session and entities.
 
 This uses an **unofficial, reverse-engineered API**. Runtime targets are
 Home Assistant **2026.11.0 (minimum)** and **2026.11.1 (target)** with
-Python **3.14.7 locally / 3.14.10 in CI**. Version **0.4.0** adds explicit
-individual loan renewal with informed consent.
-The owner has installed the published **0.3.0** release.
+Python **3.14.7 locally / 3.14.10 in CI**. Version **0.5.0** adds automatic recovery, configurable polling and explicit
+freshness reporting, while preserving individual renewal with informed consent.
 The owner confirms live Home Assistant authentication, all three aggregate
 sensors, and Marketplace installation/update. New structured loan attributes
 and dashboard templates have offline coverage; browser rendering and covers
@@ -18,8 +17,8 @@ still need an owner-run check. See [validation evidence](docs/validation.md).
 
 The owner has exercised Marketplace installation/update and account setup.
 Check the new loan details after installing this change and restarting HA.
-The owner has installed `v0.3.0`; version `0.4.0` adds the renewal action
-described below.
+Version `0.5.0` preserves existing accounts, DeviceIDs and entity IDs. It adds
+a diagnostic freshness sensor and an update interval option.
 
 1. On Home Assistant **2026.11.0 or later** (tested target **2026.11.1**), open
    **Settings → Marketplace → Add from link** and enter
@@ -70,8 +69,8 @@ Credential validation and entry setup may each log in, using the same DeviceID.
 
 ## Use the entities
 
-Each entry exposes **Active loans**, **Next due date**, **Overdue loans** and a
-read-only **Library loans** to-do list. Use standard dashboard sensor/to-do cards
+Each entry exposes **Active loans**, **Next due date**, **Overdue loans**, a
+read-only **Library loans** to-do list, and a diagnostic **Data freshness** sensor. Use standard dashboard sensor/to-do cards
 or **To-do lists**; no custom dashboard card is required. Loans retain separate
 IDs and due dates even when titles match. The date sensor uses the earliest
 known due date, including overdue loans, and is unknown when none is known.
@@ -87,12 +86,43 @@ frontend view. Direct covers are optional and loaded by your browser from the
 provider; title/due text remains readable when an image fails. The integration
 does not download or proxy images.
 
-Loans poll every **six hours**; catalogue records have a per-entry **24-hour**
-cache, bounded to 256 records. At most four catalogue requests run concurrently.
-HA's standard entity update action can request a manual refresh. A failed loan
-update makes entities unavailable while retaining the previous snapshot
-internally; a successful empty response displays zero loans. Partial catalogue
-failure keeps loans visible with available metadata.
+Loans poll every **six hours** by default, including existing installations.
+Change **Update interval (minutes)** in the entry's **Configure** options under
+**Settings → Devices & services → Axiell Libraries**: **30–1440 minutes** (24 hours),
+with **360 minutes** recommended. Changes apply to the running coordinator without
+reload, another login, changed entity IDs, or a new DeviceID. Catalogue records
+have a per-entry **24-hour** cache bounded to 256 records, with at most four
+concurrent catalogue requests. HA's standard entity update action requests a
+manual refresh, subject to a provider cooldown.
+
+After a temporary failed refresh, the last successful loans and to-do list remain
+visible. Every entity exposes `last_successful_refresh`, `data_stale`, and a safe
+`last_update_error` identifier such as `server/loans/http/503`. **Data freshness**
+is `fresh` when the last authoritative loan read succeeded, `stale` when a later
+read failed, or `unavailable` when no usable snapshot exists or credentials/security
+failed. Freshness describes the last completed read, not continuous provider
+connectivity; check the timestamp for age, especially when polling is disabled.
+A successfully fetched empty list is **zero loans**; failed reads never invent
+zero loans. Cached snapshots are held in memory, not restored across HA restarts.
+Partial catalogue failure keeps loans visible with available metadata; the refresh
+timestamp describes loans, not the age of optional catalogue details.
+
+Recoverable failures get **three early recovery cycles**, waiting **60, 120, and
+240 seconds plus 0–25% jitter**. After that, normal polling resumes; only a
+successful snapshot resets this budget. Before the first snapshot, HA's native
+setup backoff applies instead. Each cycle attempts a read and, on explicit
+session expiry, at most one recovery login and reread. A newly constructed or
+unauthenticated client also needs its initial login. A repeated expiry remains a
+provider/session failure, not a reason to change your PIN. Security violations and
+nonrecoverable HTTP errors receive no accelerated retries. Genuine credential
+rejection stops automatic polling and requests reauthentication.
+
+A valid HTTP `Retry-After` (seconds or HTTP date) sets the minimum wait, even when
+it exceeds the configured interval. It also applies to manual refresh, option
+changes, setup retries, and read reconciliation after a renewal. Scheduling may add
+about a second to avoid running early. Cooldowns survive entry reloads in memory,
+but not a HA process restart. Scheduled recovery respects HA's polling-disabled
+setting and is cancelled on unload. No renewal write is automatically repeated.
 
 The to-do list cannot complete, edit, create or delete loans. Users with control
 permission for an Axiell Libraries entity on the selected account can explicitly
@@ -120,16 +150,18 @@ The card, PIN and DeviceID are stored in **HA config entry data**. This is not a
 dedicated secrets vault; protect access to HA configuration and backups. Tokens
 and cookies stay in memory in isolated per-account sessions. Requests have a
 20-second timeout, use HTTPS and validated Solus destinations, reject redirects,
-and do not automatically retry transport failures. Recognized session expiry
-permits one recovery login per refresh, using the existing DeviceID.
+and never automatically repeat a renewal write. Read recovery uses the bounded
+scheduler described above and always reuses the existing DeviceID.
 
 Do not enable or share HTTP traces containing private data. Do not put card
 numbers, PINs, tokens, cookies, account responses or DeviceIDs into chat, issues,
 logs or repository files. Do not commit APKs, captures, decompiled code or raw
 personal data. Report failures with the UI error and its safe reference (for example,
 `bootstrap/http/403`), HA/integration version and affected step. References identify
-discovery/manual lookup, routing, bootstrap, pre-session or check-session, and
-transport, HTTP, API rejection, response schema, missing token or security errors.
+discovery/manual lookup, routing, bootstrap, pre-session, check-session, loans,
+catalogue or renewal, and transport, timeout, HTTP, API rejection, response schema,
+missing token or security errors. Repeated failures log once per outage; diagnostic
+attributes continue to show the latest category, and successful recovery is logged.
 Routing/bootstrap HTTP rejection does not mean your PIN was rejected.
 Strict routing and unverified response variants may
 cause a safe provider error; [protocol assumptions](docs/protocol.md#client-implementation-contract-and-remaining-assumptions)
@@ -182,7 +214,7 @@ python3.14 -m venv /tmp/axiell-dev-2026110
 
 docker run --rm -v "$PWD:/github/workspace:ro" ghcr.io/home-assistant/hassfest:latest
 actionlint
-/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.4.0
+/tmp/axiell-dev-2026111/bin/python scripts/check_release.py v0.5.0
 git diff --check
 ```
 
@@ -201,17 +233,21 @@ for local and hosted evidence and the remaining owner-run checks.
 
 ## Maintainer releases
 
-The canonical release identifiers are manifest `0.4.0`, Git tag `v0.4.0`
-and release title `0.4.0`. The owner has explicitly authorized publication of
-0.4.0 only; future publications and live renewal tests require separate explicit
-instruction. Preserve repository visibility.
+The canonical release identifiers are manifest `0.5.0`, Git tag `v0.5.0`
+and release title `0.5.0`. The owner has explicitly authorized publication of
+0.5.0 on November 15, 2026; future publications and live renewal tests require
+separate explicit instruction. Preserve repository visibility.
 
+For the authorized 0.5.0 publication, a one-time workflow additionally requires
+an explicit `[publish-v0.5.0]` marker on the merge commit, a change to that workflow,
+and `main`; it runs the same complete validation before publishing only 0.5.0.
+The ordinary manual workflow remains available for later authorized releases.
 After review and merge to `main`, a maintainer may dispatch
-**Actions → Release** with numeric input `0.4.0`. Full reusable validation,
+**Actions → Release** with numeric input `0.5.0`. Full reusable validation,
 tag/manifest agreement and reviewed notes gate atomic tag creation at the
 validated dispatch SHA. Existing tags are refused. No attached ZIP is required.
 See [release preparation and failure recovery](docs/releases.md) and the
-[0.4.0 notes](docs/releases/0.4.0.md). If publishing fails after tag creation,
+[0.5.0 notes](docs/releases/0.5.0.md). If publishing fails after tag creation,
 inspect the validated SHA and repository state before authorized recovery;
 never blindly rerun or move/delete the tag. Direct-link update checks require
 a GitHub connection and can take up to the documented 48-hour interval. This

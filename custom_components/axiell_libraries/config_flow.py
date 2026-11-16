@@ -7,7 +7,13 @@ from typing import Any
 
 import aiohttp
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.selector import (
     SelectSelector,
@@ -19,7 +25,13 @@ from homeassistant.helpers.selector import (
 )
 
 from . import solus
-from .const import DOMAIN
+from .const import (
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
+    DOMAIN,
+    MAX_UPDATE_INTERVAL,
+    MIN_UPDATE_INTERVAL,
+)
 
 _MANUAL = "manual"
 _PIN = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
@@ -30,6 +42,12 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
     """Select a library, then validate the account once per submission."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Adjust polling without reloading or validating the account again."""
+        return AxiellLibrariesOptionsFlow()
 
     def __init__(self) -> None:
         self._device_id: str | None = None
@@ -197,4 +215,31 @@ class AxiellLibrariesConfigFlow(ConfigFlow, domain=DOMAIN):
         """Update the PIN for this entry's fixed library and card pair."""
         return await self._update_pin(
             self._get_reconfigure_entry(), "reconfigure", user_input
+        )
+
+
+class AxiellLibrariesOptionsFlow(OptionsFlow):
+    """Store the account's normal polling interval in integer minutes."""
+
+    async def async_step_init(self, user_input=None) -> ConfigFlowResult:
+        """Show the current interval and persist only config-entry options."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data={**self.config_entry.options, **user_input}
+            )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=self.config_entry.options.get(
+                            CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+                        ),
+                    ): vol.All(
+                        int,
+                        vol.Range(min=MIN_UPDATE_INTERVAL, max=MAX_UPDATE_INTERVAL),
+                    )
+                }
+            ),
         )

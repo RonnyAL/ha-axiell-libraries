@@ -90,12 +90,22 @@ def test_release_rejects_unreadable_manifest(tmp_path, content):
     assert not result.stderr
 
 
+@pytest.fixture(
+    params=[("release.yaml", "0.3.0"), ("publish-0.5.0.yaml", "0.5.0")],
+    ids=["manual-release", "one-time-0.5.0"],
+)
+def release_workflow(request):
+    """Keep the general release and one-time release under the same guards."""
+    filename, version = request.param
+    path = ROOT / ".github/workflows" / filename
+    assert path.is_file(), f"Missing release workflow: {filename}"
+    return yaml.load(path.read_text(), Loader=yaml.BaseLoader), version
+
+
 @pytest.fixture
-def publish_shell(tmp_path):
+def publish_shell(tmp_path, release_workflow):
     """Run the checked-in workflow shell with a recording fake gh, never GitHub."""
-    workflow = yaml.load(
-        (ROOT / ".github/workflows/release.yaml").read_text(), Loader=yaml.BaseLoader
-    )
+    workflow, expected_version = release_workflow
     step = next(
         step
         for step in workflow["jobs"]["publish"]["steps"]
@@ -105,8 +115,8 @@ def publish_shell(tmp_path):
     shutil.copy(ROOT / "scripts/check_release.py", tmp_path / "scripts")
     manifest = tmp_path / "custom_components/axiell_libraries/manifest.json"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"version": "0.3.0"}')
-    notes = tmp_path / "docs/releases/0.3.0.md"
+    manifest.write_text(json.dumps({"version": expected_version}))
+    notes = tmp_path / f"docs/releases/{expected_version}.md"
     notes.parent.mkdir(parents=True)
     notes.write_text("Reviewed synthetic notes.\n")
     calls = tmp_path / "calls.jsonl"
@@ -123,7 +133,7 @@ def publish_shell(tmp_path):
     )
     gh.chmod(0o755)
 
-    def run(version="0.3.0", **extra_env):
+    def run(version=expected_version, **extra_env):
         result = subprocess.run(
             [
                 "bash",
@@ -166,9 +176,12 @@ def publish_shell(tmp_path):
     return run, notes
 
 
-def test_workflow_creates_immutable_tag_then_reviewed_release(publish_shell):
+def test_workflow_creates_immutable_tag_then_reviewed_release(
+    publish_shell, release_workflow
+):
     """Wrong tag, commit, title, notes or ordering changes the publication contract."""
     run, _ = publish_shell
+    _, version = release_workflow
     result, calls = run()
     assert result.returncode == 0, result.stdout + result.stderr
     assert calls == [
@@ -178,19 +191,19 @@ def test_workflow_creates_immutable_tag_then_reviewed_release(publish_shell):
             "POST",
             "repos/synthetic/library/git/refs",
             "-f",
-            "ref=refs/tags/v0.3.0",
+            f"ref=refs/tags/v{version}",
             "-f",
             f"sha={SHA}",
         ],
         [
             "release",
             "create",
-            "v0.3.0",
+            f"v{version}",
             "--verify-tag",
             "--title",
-            "0.3.0",
+            version,
             "--notes-file",
-            "docs/releases/0.3.0.md",
+            f"docs/releases/{version}.md",
         ],
     ]
 
@@ -199,6 +212,7 @@ def test_workflow_creates_immutable_tag_then_reviewed_release(publish_shell):
     "version",
     [
         "0.3.1",
+        "0.5.1",
         "v0.3.0",
         "00.3.0",
         "0.3.0-rc.1",
@@ -242,6 +256,20 @@ def test_workflow_requires_reviewed_notes_before_tag_creation(publish_shell, mis
     assert calls == []
 
 
+@pytest.mark.parametrize("content", [None, "{", "{}", "[]", '{"version": "0.4.0"}'])
+def test_workflow_rejects_bad_manifest_before_tag_creation(publish_shell, content):
+    """Missing, malformed or mismatched manifests cannot leave a release ref."""
+    run, notes = publish_shell
+    manifest = notes.parents[2] / "custom_components/axiell_libraries/manifest.json"
+    if content is None:
+        manifest.unlink()
+    else:
+        manifest.write_text(content)
+    result, calls = run()
+    assert result.returncode != 0
+    assert calls == []
+
+
 def test_workflow_rejects_invalid_commit_before_tag_creation(publish_shell):
     """A malformed commit cannot become the release target."""
     run, _ = publish_shell
@@ -250,21 +278,40 @@ def test_workflow_rejects_invalid_commit_before_tag_creation(publish_shell):
     assert calls == []
 
 
-def test_workflow_only_publishes_main_after_full_validation():
+def test_workflow_only_publishes_main_after_full_validation(release_workflow):
     """A feature ref or skipped validation must have no write-enabled path."""
-    workflow = yaml.load(
-        (ROOT / ".github/workflows/release.yaml").read_text(), Loader=yaml.BaseLoader
-    )
+    workflow, version = release_workflow
     validate = workflow["jobs"]["validate"]
     publish = workflow["jobs"]["publish"]
-    assert validate["if"] == publish["if"] == "github.ref == 'refs/heads/main'"
+    if version == "0.5.0":
+        assert (
+            validate["if"]
+            == publish["if"]
+            == (
+                "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+                "contains(github.event.head_commit.message, '[publish-v0.5.0]')"
+            )
+        )
+        assert workflow["on"] == {
+            "push": {
+                "branches": ["main"],
+                "paths": [".github/workflows/publish-0.5.0.yaml"],
+            }
+        }
+        assert publish["env"] == {"RELEASE_VERSION": "0.5.0"}
+    else:
+        assert validate["if"] == publish["if"] == "github.ref == 'refs/heads/main'"
+        assert set(workflow["on"]) == {"workflow_dispatch"}
+        assert publish["env"]["RELEASE_VERSION"] == "${{ inputs.version }}"
     assert validate["uses"] == "./.github/workflows/validate.yaml"
     assert publish["needs"] == "validate"
-    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert workflow["concurrency"] == {
+        "group": "release",
+        "cancel-in-progress": "false",
+    }
     assert workflow["permissions"] == {}
     assert validate["permissions"] == {"contents": "read"}
     assert publish["permissions"] == {"contents": "write"}
-    assert publish["env"]["RELEASE_VERSION"] == "${{ inputs.version }}"
     assert publish["steps"][0]["with"]["ref"] == "${{ github.sha }}"
     for step in publish["steps"]:
         assert "${{" not in step.get("run", "")

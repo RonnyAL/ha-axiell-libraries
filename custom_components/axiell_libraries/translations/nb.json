@@ -49,6 +49,17 @@
       "reconfigure_successful": "PIN ble oppdatert."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Oppdatering av biblioteklån",
+        "description": "Velg hvor ofte lån skal hentes, fra 30 til 1440 minutter. Ved midlertidige feil kan nye forsøk gjøres tidligere.",
+        "data": {
+          "update_interval": "Oppdateringsintervall (minutter)"
+        }
+      }
+    }
+  },
   "selector": {
     "library": {
       "options": {
@@ -66,6 +77,14 @@
       },
       "overdue_loans": {
         "name": "Forfalte lån"
+      },
+      "data_freshness": {
+        "name": "Datastatus",
+        "state": {
+          "fresh": "Oppdatert",
+          "stale": "Utdatert",
+          "unavailable": "Utilgjengelig"
+        }
       }
     },
     "todo": {
