@@ -876,6 +876,20 @@ version changes and any future directory mapping remain separate owner decisions
 
 ## November 16 catalogue system-status follow-up
 
+The owner authorized a draft PR and supported-version CI after local review.
+[PR #9 validation](https://github.com/RonnyAL/ha-axiell-libraries/actions/runs/43846606563)
+passed on commit `6035a8ba305ae2bd306f7bcb7ceec300399e7379`:
+
+- Python 3.14.10, Core and official harness 2026.11.0: **819 passed**, five
+  dependency deprecation warnings, 13.18 seconds.
+- Python 3.14.10, Core and official harness 2026.11.1: **819 passed**, five
+  dependency deprecation warnings, 12.62 seconds.
+- Both suites include Marketplace and localhost cookie transport tests; no
+  exclusions or deselections. Pinned Ruff 0.17.5 check/format and hassfest passed.
+
+This closes the runtime gaps in the earlier local evidence below. The draft
+remains unmerged and unreleased; live provider behavior remains unverified.
+
 Owner-provided APK 2026.42 findings identify the exact case-sensitive body values
 `sessionexpired`, `LOGINEXPIRED`, and `VALIDATIONREQUIRED`; the example response is
 illustrative, not a production capture or proof of the November 15 cause. Offline
@@ -898,6 +912,6 @@ fetching `pypi.org/simple/aioresponses`. Bare full collection fails because the
 supplemental Core lacks `homeassistant.components.marketplace`. Including the
 socket cases yields 804 passed and two pre-existing sandbox `PermissionError`
 failures in `test_real_cookie_transport_isolated_in_ha_owned_sessions[True/False]`.
-No repository requirements or exclusion gates were changed. No provider calls,
-release, push, deployment, or version bump were performed. Owner-run November Core
-CI and any live setup verification remain outstanding.
+No repository requirements or exclusion gates were changed. These local checks
+preceded the owner-authorized push and CI above. No provider calls, release,
+deployment, or version bump were performed; live setup verification is outstanding.
