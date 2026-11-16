@@ -161,7 +161,13 @@ async def test_native_entities_have_independent_dates_safe_metadata_and_device(
 ):
     config = entry(hass)
     ids = await setup(hass, config)
-    assert set(ids) == {"active_loans", "next_due_date", "overdue_loans", "loans"}
+    assert set(ids) == {
+        "active_loans",
+        "next_due_date",
+        "overdue_loans",
+        "loans",
+        "data_freshness",
+    }
     assert hass.states.get(ids["active_loans"]).state == "3"
     assert hass.states.get(ids["overdue_loans"]).state == "1"
     due = hass.states.get(ids["next_due_date"])
@@ -332,14 +338,17 @@ async def test_setup_failure_detaches_account_session_without_closing_shared_con
     assert "SYNTHETIC_PRIVATE_DETAIL" not in caplog.text
 
 
-async def test_refresh_failure_is_unavailable_then_real_empty_list_is_zero(hass, api):
+async def test_refresh_failure_is_stale_then_real_empty_list_is_zero(hass, api):
     config = entry(hass)
     ids = await setup(hass, config)
     api.loans_error = SolusConnectionError
     await config.runtime_data.async_refresh()
     await hass.async_block_till_done()
+    assert hass.states.get(ids["active_loans"]).state == "3"
+    assert hass.states.get(ids["data_freshness"]).state == "stale"
     assert all(
-        hass.states.get(entity_id).state == "unavailable" for entity_id in ids.values()
+        hass.states.get(entity_id).attributes["data_stale"]
+        for entity_id in ids.values()
     )
     api.loans_error = None
     api.rows = []
@@ -626,3 +635,52 @@ async def test_failed_platform_unload_keeps_account_operational(hass, api):
         assert (
             await config.runtime_data.async_renew_loan("loan-a")
         ).status == "renewed"
+
+
+async def test_live_options_reschedule_without_reloading_account(hass, api, freezer):
+    from datetime import UTC, datetime, timedelta
+
+    from pytest_homeassistant.common import async_fire_time_changed
+
+    config = entry(hass)
+    ids = await setup(hass, config)
+    coordinator = config.runtime_data
+    original_client = api.clients[0]
+    original_data = dict(config.data)
+    assert coordinator.update_interval == timedelta(hours=6)
+    hass.config_entries.async_update_entry(config, options={"update_interval": 30})
+    await hass.async_block_till_done()
+    assert config.runtime_data is coordinator
+    assert api.clients == [original_client]
+    assert not original_client._session.closed
+    assert config.data == original_data
+    assert coordinator.update_interval == timedelta(minutes=30)
+    api.rows = []
+    freezer.tick(timedelta(minutes=31))
+    async_fire_time_changed(hass, datetime.now(UTC))
+    await hass.async_block_till_done()
+    assert hass.states.get(ids["active_loans"]).state == "0"
+    assert entities(hass, config) == ids
+
+
+async def test_freshness_sensor_and_attributes_retain_stale_data(hass, api):
+    config = entry(hass)
+    ids = await setup(hass, config)
+    assert hass.states.get(ids["data_freshness"]).state == "fresh"
+    before = hass.states.get(ids["active_loans"]).attributes["last_successful_refresh"]
+    api.loans_error = SolusConnectionError
+    await config.runtime_data.async_refresh()
+    assert hass.states.get(ids["active_loans"]).state == "3"
+    assert hass.states.get(ids["loans"]).state == "3"
+    assert hass.states.get(ids["data_freshness"]).state == "stale"
+    for entity_id in ids.values():
+        attrs = hass.states.get(entity_id).attributes
+        assert attrs["data_stale"] is True
+        assert attrs["last_successful_refresh"] == before
+        assert attrs["last_update_error"].startswith("transport/")
+    api.loans_error = None
+    api.rows = []
+    await config.runtime_data.async_refresh()
+    assert hass.states.get(ids["active_loans"]).state == "0"
+    assert hass.states.get(ids["data_freshness"]).state == "fresh"
+    assert hass.states.get(ids["active_loans"]).attributes["last_update_error"] is None

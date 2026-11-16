@@ -163,7 +163,7 @@ async def test_explicit_empty_loans_replaces_previous_data(setup_coordinator):
     ],
     ids=["blank-rows", "missing-title", "duplicate-ids", "normalized-duplicate-ids"],
 )
-async def test_real_client_malformed_loans_retain_snapshot_and_unavailable_todo(
+async def test_real_client_malformed_loans_retain_snapshot_and_stale_todo(
     setup_coordinator, hass, rows, caplog
 ):
     """A malformed successful HTTP response cannot replace valid issued copies."""
@@ -212,7 +212,8 @@ async def test_real_client_malformed_loans_retain_snapshot_and_unavailable_todo(
             assert coordinator.data is previous
             assert not coordinator.last_update_success
             assert isinstance(coordinator.last_exception, UpdateFailed)
-            assert not todo.available
+            assert todo.available
+            assert todo.extra_state_attributes["data_stale"] is True
             assert [item.uid for item in todo.todo_items] == ["loan-a", "loan-b"]
             assert [item.summary for item in todo.todo_items] == [
                 "Example book",
@@ -273,8 +274,9 @@ async def test_repeated_session_expiry_stops_after_one_recovery(
     coordinator, _, client = setup_coordinator
     target = client.async_get_loans if stage == "loans" else client.async_get_record
     target.side_effect = SolusSessionExpired("expired")
-    with pytest.raises(ConfigEntryAuthFailed):
+    with pytest.raises(ConfigEntryNotReady):
         await coordinator.async_config_entry_first_refresh()
+    assert isinstance(coordinator.last_exception, UpdateFailed)
     assert client.async_login.await_count == 2
     assert target.await_count == 2
 

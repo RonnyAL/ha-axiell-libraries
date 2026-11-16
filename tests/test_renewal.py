@@ -398,6 +398,7 @@ async def test_reconciliation_recovers_expired_session_once_without_write_retry(
 
 async def test_reconciliation_auth_failure_starts_reauth_without_leaking(ready, caplog):
     coordinator, entry, client = ready
+    client.async_login.side_effect = SolusAuthError("PRIVATE")
     client.async_renew_loan.side_effect = SolusSessionExpired("PRIVATE")
     client.async_get_loans.side_effect = [
         [loan()],

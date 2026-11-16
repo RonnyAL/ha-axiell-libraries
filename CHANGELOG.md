@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+- Recover failed loan polls using three bounded, jittered recovery cycles and
+  provider Retry-After waits, without reloading the integration or retrying writes.
+  Separate session/transport/protocol/security failures from credential rejection.
+- Add live polling options from 30 minutes to 24 hours, retaining the six-hour
+  default and existing DeviceID/entity identity.
+- Retain last-known loans during temporary failures with explicit freshness,
+  refresh timestamp, safe error diagnostics and a diagnostic freshness sensor.
 
 - Authorize individual renewal using current control permission for an Axiell
   Libraries entity on the selected account, including confirmation calls. Allow

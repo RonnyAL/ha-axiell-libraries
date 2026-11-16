@@ -8,11 +8,14 @@ import base64
 import json
 import math
 import re
+import ssl
 import unicodedata
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from functools import wraps
 from html import escape, unescape
 from html.parser import HTMLParser
+from time import time
 from typing import Any, Literal
 from urllib.parse import quote, quote_plus, urlencode, urlsplit
 from uuid import uuid4
@@ -44,11 +47,15 @@ _STAGES = frozenset(
         "bootstrap",
         "login_presession",
         "login_checksession",
+        "loans",
+        "catalogue",
+        "renewal",
     }
 )
 _REASONS = frozenset(
     {
         "transport",
+        "timeout",
         "http",
         "api_rejection",
         "response_schema",
@@ -62,12 +69,32 @@ class SolusError(Exception):
     """Static messages and finite diagnostic context, never upstream content."""
 
     default_reason = "response_schema"
+    default_category = "protocol"
 
-    def __init__(self, *args: object, reason=None, status=None) -> None:
+    def __init__(
+        self, *args: object, reason=None, status=None, retry_after=None
+    ) -> None:
         super().__init__(*args)
         self.stage = "provider"
         self.reason = reason if reason in _REASONS else self.default_reason
         self.status = status if type(status) is int and 100 <= status <= 599 else None
+        self.retry_after: float | None = None
+        if type(retry_after) in (int, float) and retry_after >= 0:
+            try:
+                if math.isfinite(retry_after):
+                    self.retry_after = float(retry_after)
+            except OverflowError:
+                pass
+
+    @property
+    def category(self) -> str:
+        """Return a finite category without reading provider messages."""
+        return self.default_category
+
+    @property
+    def retryable(self) -> bool:
+        """Whether a later read cycle may recover; never authorize write replay."""
+        return self.category not in {"credentials", "security"}
 
     def at_stage(self, stage: str) -> None:
         """Keep the innermost known stage, including routing during discovery."""
@@ -106,16 +133,38 @@ class SolusConnectionError(SolusError):
     """Transport or HTTP server failure."""
 
     default_reason = "transport"
+    default_category = "transport"
+
+    @property
+    def category(self) -> str:
+        if self.reason == "timeout":
+            return "timeout"
+        if self.reason == "http":
+            if self.status == 408:
+                return "timeout"
+            if self.status == 429:
+                return "rate_limit"
+            if self.status is not None and 500 <= self.status <= 599:
+                return "server"
+            return "protocol"
+        return self.default_category
+
+    @property
+    def retryable(self) -> bool:
+        return self.category in {"transport", "timeout", "rate_limit", "server"}
 
 
 class SolusAuthError(SolusError):
-    """Authentication was rejected or an HTTP session expired."""
+    """Credential submission was rejected or no session has been established."""
 
     default_reason = "api_rejection"
+    default_category = "credentials"
 
 
 class SolusSessionExpired(SolusAuthError):
     """An authenticated data request received HTTP 401/403."""
+
+    default_category = "session"
 
 
 class SolusProtocolError(SolusError):
@@ -126,6 +175,7 @@ class SolusSecurityError(SolusError):
     """Unsafe destination or redirect rejected before forwarding secrets."""
 
     default_reason = "security"
+    default_category = "security"
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +349,24 @@ def _decode(value: Any) -> Any:
     return value
 
 
+def _retry_after(value: str | None) -> float | None:
+    """Decode a Retry-After duration without retaining an untrusted header."""
+    if value is None:
+        return None
+    value = value.strip()
+    try:
+        if re.fullmatch(r"[0-9]+", value):
+            delay = float(value)
+        else:
+            deadline = parsedate_to_datetime(value)
+            if deadline.tzinfo is None:
+                return None
+            delay = max(0.0, deadline.timestamp() - time())
+        return delay if math.isfinite(delay) else None
+    except ValueError, TypeError, OverflowError, OSError:
+        return None
+
+
 async def _request(
     session: aiohttp.ClientSession,
     method: str,
@@ -330,13 +398,22 @@ async def _request(
                 ) from None
             if response.status != 200:
                 raise SolusConnectionError(
-                    "Solus server unavailable", reason="http", status=response.status
+                    "Solus server unavailable",
+                    reason="http",
+                    status=response.status,
+                    retry_after=_retry_after(response.headers.get("Retry-After")),
                 ) from None
             if bootstrap:
                 await response.read()
                 return None
             return await response.json(content_type=None, encoding="utf-8-sig")
-    except TimeoutError, aiohttp.ClientError:
+    except ssl.SSLError, aiohttp.ClientSSLError, aiohttp.ServerFingerprintMismatch:
+        raise SolusSecurityError("Unable to verify Solus connection") from None
+    except TimeoutError:
+        raise SolusConnectionError(
+            "Solus request timed out", reason="timeout"
+        ) from None
+    except aiohttp.ClientError:
         raise SolusConnectionError("Unable to contact Solus") from None
     except ValueError, TypeError, UnicodeError:
         raise SolusProtocolError("Malformed Solus response") from None
@@ -530,7 +607,6 @@ class SolusClient:
         method: str,
         request: dict,
         *,
-        authentication=False,
         user_id: str | None = None,
     ) -> Any:
         """Share envelopes and expiry handling, without choosing a decoder."""
@@ -567,15 +643,27 @@ class SolusClient:
                 f"{self._server}/v4/Cat.asmx/{method}?rnd={uuid4().hex}",
                 payload=envelope,
                 headers=headers,
-                auth_response=True,
+                auth_response=method == "LoginPreSession",
             )
-        except SolusAuthError:
+        except SolusConnectionError as error:
+            if error.status not in (401, 403):
+                raise
+            if method == "LoginCheckSession":
+                raise SolusProtocolError(
+                    "Solus session establishment rejected",
+                    reason="http",
+                    status=error.status,
+                    retry_after=error.retry_after,
+                ) from None
             self._authenticated = False
             self._token = ""
-            self._session_expired = not authentication
-            if not authentication:
-                raise SolusSessionExpired("Solus session expired") from None
-            raise
+            self._session_expired = True
+            raise SolusSessionExpired(
+                "Solus session expired",
+                reason="http",
+                status=error.status,
+                retry_after=error.retry_after,
+            ) from None
 
     async def _call(
         self,
@@ -587,9 +675,7 @@ class SolusClient:
     ) -> dict:
         """Keep authentication and read calls strictly success-only."""
         return _section(
-            await self._catalogue_request(
-                method, request, authentication=authentication, user_id=user_id
-            ),
+            await self._catalogue_request(method, request, user_id=user_id),
             authentication=authentication,
         )
 
@@ -662,7 +748,6 @@ class SolusClient:
                     "DPR": 1,
                     "AuthToken": self._token,
                 },
-                authentication=True,
                 user_id="",
             )
             check_users = _decode(check.get("Detail"))
@@ -712,6 +797,7 @@ class SolusClient:
             *(cookie.value for cookie in self._session.cookie_jar),
         )
 
+    @_at_stage("renewal")
     async def async_renew_loan(
         self,
         user_id: str,
@@ -743,6 +829,7 @@ class SolusClient:
         )
         return _renewal_reply(response, (*secrets, *self._renewal_secrets()))
 
+    @_at_stage("loans")
     async def async_get_loans(self, user_id: str) -> list[dict]:
         """Fetch loans; malformed responses never imply an empty account."""
         self._require_session()
@@ -757,6 +844,7 @@ class SolusClient:
             loan_ids.add(loan_id)
         return rows
 
+    @_at_stage("catalogue")
     async def async_get_record(self, record_id: str, source: str) -> dict | None:
         """Fetch optional metadata; callers may catch SolusError per record."""
         self._require_session()

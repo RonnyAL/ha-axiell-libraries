@@ -9,11 +9,20 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import AxiellConfigEntry, AxiellEntity
 
 _DESCRIPTIONS = (
+    SensorEntityDescription(
+        key="data_freshness",
+        translation_key="data_freshness",
+        device_class=SensorDeviceClass.ENUM,
+        options=["fresh", "stale", "unavailable"],
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:cloud-check-outline",
+    ),
     SensorEntityDescription(
         key="active_loans", translation_key="active_loans", icon="mdi:book-multiple"
     ),
@@ -33,14 +42,14 @@ async def async_setup_entry(
     entry: AxiellConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add the three account sensors."""
+    """Add the loan sensors and account freshness diagnostic."""
     async_add_entities(
         AxiellSensor(entry, description) for description in _DESCRIPTIONS
     )
 
 
 class AxiellSensor(AxiellEntity, SensorEntity):
-    """Derive values from a successful snapshot; failed refreshes are unavailable."""
+    """Derive loan values from the last snapshot and expose its freshness."""
 
     _unrecorded_attributes = frozenset({"loans"})
 
@@ -51,12 +60,25 @@ class AxiellSensor(AxiellEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Expose the current issued copies only on the active-loan count."""
-        if self.entity_description.key == "active_loans":
-            return {"loans": [loan.as_dict() for loan in self.coordinator.data.loans]}
-        return None
+        attributes = self.coordinator.freshness_attributes
+        if self.entity_description.key == "active_loans" and self.coordinator.data:
+            attributes["loans"] = [
+                loan.as_dict() for loan in self.coordinator.data.loans
+            ]
+        return attributes
 
     @property
-    def native_value(self) -> int | date | None:
+    def available(self) -> bool:
+        if self.entity_description.key == "data_freshness":
+            return True
+        return super().available
+
+    @property
+    def native_value(self) -> int | str | date | None:
+        if self.entity_description.key == "data_freshness":
+            return self.coordinator.data_freshness
+        if self.coordinator.data is None:
+            return None
         loans = self.coordinator.data.loans
         if self.entity_description.key == "active_loans":
             return len(loans)

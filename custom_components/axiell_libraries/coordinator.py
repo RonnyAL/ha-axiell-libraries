@@ -2,25 +2,35 @@
 
 import asyncio
 import logging
+import random
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
+from .const import CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, DOMAIN
 from .models import CatalogueRecord, LibrarySnapshot, Loan
 from .renewal import RenewalError, RenewalManager, RenewalResult
-from .solus import SolusAuthError, SolusClient, SolusError, SolusSessionExpired
+from .solus import (
+    SolusAuthError,
+    SolusClient,
+    SolusError,
+    SolusSecurityError,
+    SolusSessionExpired,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _CATALOGUE_TTL = timedelta(hours=24)
 _CACHE_LIMIT = 256
 _ENRICHMENT_CONCURRENCY = 4
+_RECOVERY_LIMIT = 3
+_RECOVERY_BASE_SECONDS = 60
 
 type RecordKey = tuple[str, str]
 
@@ -29,6 +39,13 @@ type RecordKey = tuple[str, str]
 class _CachedRecord:
     record: CatalogueRecord
     fetched_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class _ProviderCooldown:
+    expires_at: float
+    category: str
+    reference: str
 
 
 class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
@@ -47,7 +64,9 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
             _LOGGER,
             config_entry=entry,
             name=DOMAIN,
-            update_interval=timedelta(hours=6),
+            update_interval=timedelta(
+                minutes=entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+            ),
         )
         self._client = client
         self._entry = entry
@@ -58,22 +77,140 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
         self._shutdown_task: asyncio.Task[None] | None = None
         self._renewal_task: asyncio.Task[RenewalResult] | None = None
         self._cache: OrderedDict[RecordKey, _CachedRecord] = OrderedDict()
+        self._needs_login = True
+        self._recovery_attempts = 0
+        self._recovery_deadline: float | None = None
+        self._provider_retry_at = 0.0
+        self._last_update_error: str | None = None
+        self._error_category: str | None = None
+        self._failure_message = "Unable to update library data"
+        self._previously_failed = False
+        self._catalogue_blocked: SolusError | None = None
+        # Retain the provider cooldown across coordinator reconstruction,
+        # including explicit reloads. Store only a deadline and safe diagnostics.
+        self._cooldowns: dict[str, _ProviderCooldown] = hass.data.setdefault(
+            f"{DOMAIN}_cooldowns", {}
+        )
+        for entry_id, cooldown in tuple(self._cooldowns.items()):
+            if cooldown.expires_at <= monotonic():
+                self._cooldowns.pop(entry_id)
+        if cooldown := self._cooldowns.get(entry.entry_id):
+            self._provider_retry_at = cooldown.expires_at
+            self._recovery_deadline = cooldown.expires_at
+            self._error_category = cooldown.category
+            self._last_update_error = cooldown.reference
+            self._failure_message = (
+                f"Unable to update library data ({cooldown.reference})"
+            )
+
+    @property
+    def last_update_error(self) -> str | None:
+        """A finite category/reference; never expose provider exception text."""
+        return self._last_update_error
+
+    @property
+    def snapshot_available(self) -> bool:
+        """A retained snapshot remains usable except after unsafe/account failures."""
+        return self.data is not None and self._error_category not in {
+            "credentials",
+            "security",
+        }
+
+    @property
+    def freshness_attributes(self) -> dict:
+        """Expose when loans were actually fetched, including during an outage."""
+        return {
+            "last_successful_refresh": self.data.fetched_at.isoformat()
+            if self.data
+            else None,
+            "data_stale": self.data is not None and not self.last_update_success,
+            "last_update_error": self.last_update_error,
+        }
+
+    @property
+    def data_freshness(self) -> str:
+        """Fresh means the last authoritative loan refresh succeeded."""
+        if not self.snapshot_available:
+            return "unavailable"
+        return "fresh" if self.last_update_success else "stale"
+
+    async def async_update_options(self) -> None:
+        """Apply polling changes in place, retaining any recovery deadline."""
+        self.update_interval = timedelta(
+            minutes=self._entry.options.get(
+                CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
+            )
+        )
+        if self._listeners and not self._closing:
+            self._schedule_refresh()
+
+    @callback
+    def _schedule_refresh(self) -> None:
+        """Use Core's timer, preserving deadlines across options/manual updates."""
+        if self._closing or self._error_category == "credentials":
+            return
+        if self._recovery_deadline is not None:
+            # Core rounds its timer start down to a whole second. Never fire
+            # before Retry-After (including when rescheduling an existing timer).
+            self._retry_after = max(0, self._recovery_deadline - monotonic()) + 1
+        super()._schedule_refresh()
+
+    @callback
+    def _async_refresh_finished(self) -> None:
+        """Core suppresses callbacks on consecutive failures; diagnostics can change."""
+        if self._previously_failed and not self.last_update_success:
+            self.async_update_listeners()
+
+    def _respect_retry_after(self, error: SolusError) -> None:
+        if error.retry_after is not None:
+            self._provider_retry_at = max(
+                self._provider_retry_at, monotonic() + error.retry_after
+            )
+            self._cooldowns[self._entry.entry_id] = _ProviderCooldown(
+                self._provider_retry_at,
+                error.category,
+                f"{error.category}/{error.reference()}",
+            )
+
+    def _failed_refresh(self, error: SolusError) -> UpdateFailed:
+        """Select a bounded recovery delay without retrying any request here."""
+        self._error_category = error.category
+        self._last_update_error = f"{error.category}/{error.reference()}"
+        self._failure_message = (
+            f"Unable to update library data ({self._last_update_error})"
+        )
+        self._respect_retry_after(error)
+        if self.data is None:
+            # A new coordinator is created on each setup retry. A fixed early
+            # hint here would reset Core's own exponential setup backoff.
+            remaining = self._provider_retry_at - monotonic()
+            self._recovery_deadline = self._provider_retry_at if remaining > 0 else None
+            return UpdateFailed(
+                self._failure_message,
+                retry_after=remaining + 1 if remaining > 0 else None,
+            )
+        delay = self.update_interval.total_seconds()
+        if error.retryable and self._recovery_attempts < _RECOVERY_LIMIT:
+            base = _RECOVERY_BASE_SECONDS * 2**self._recovery_attempts
+            delay = base + random.uniform(0, base / 4)
+            self._recovery_attempts += 1
+        delay = max(delay, self._provider_retry_at - monotonic())
+        self._recovery_deadline = monotonic() + delay
+        return UpdateFailed(self._failure_message, retry_after=delay + 1)
+
+    @callback
+    def async_note_write_failure(self, error: SolusError) -> None:
+        """Honor a write's provider cooldown before read-only reconciliation."""
+        if error.retry_after is not None:
+            self._failed_refresh(error)
 
     async def _async_login(self) -> None:
-        """Reuse stored credentials; no DeviceID or session construction here."""
-        try:
-            await self._client.async_login(
-                self._entry.data["card"], self._entry.data["pin"]
-            )
-        except SolusAuthError:
-            raise ConfigEntryAuthFailed("Library authentication failed") from None
-        except SolusError:
-            raise UpdateFailed("Unable to update library data") from None
-
-    async def _async_setup(self) -> None:
-        """Own initial login for HA's async_config_entry_first_refresh lifecycle."""
-        async with self._operation_lock:
-            await self._async_login()
+        """Reuse stored identity; failed recovery stays eligible for a later login."""
+        self._needs_login = True
+        await self._client.async_login(
+            self._entry.data["card"], self._entry.data["pin"]
+        )
+        self._needs_login = False
 
     @callback
     def async_set_closing(self, closing: bool) -> None:
@@ -121,6 +258,7 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
 
     async def _async_update_data(self) -> LibrarySnapshot:
         """Serialize polling with account writes and authentication recovery."""
+        self._previously_failed = not self.last_update_success
         async with self._operation_lock:
             if self._closing:
                 raise UpdateFailed("Library account is unloading")
@@ -130,34 +268,53 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
         """Publish a fresh snapshot without reacquiring the operation lock."""
         try:
             snapshot = await self._async_refresh_unlocked()
-        except ConfigEntryAuthFailed:
-            self.async_set_update_error(
-                ConfigEntryAuthFailed("Library authentication failed")
-            )
-            self._entry.async_start_reauth(self.hass)
-            return False
-        except UpdateFailed:
-            self.async_set_update_error(UpdateFailed("Unable to update library data"))
+        except (ConfigEntryAuthFailed, UpdateFailed) as error:
+            previously_failed = not self.last_update_success
+            self.async_set_update_error(error)
+            if previously_failed:
+                self.async_update_listeners()
+            if isinstance(error, ConfigEntryAuthFailed):
+                self._async_unsub_refresh()
+                self._entry.async_start_reauth(self.hass)
+            elif self._listeners:
+                self._schedule_refresh()
             return False
         self.async_set_updated_data(snapshot)
         return True
 
     async def _async_refresh_unlocked(self) -> LibrarySnapshot:
-        """Retry explicit session expiry once; invalid credentials never retry."""
-        for attempt in range(2):
-            try:
-                return await self._async_fetch_snapshot()
-            except SolusSessionExpired:
-                if attempt:
-                    raise ConfigEntryAuthFailed(
-                        "Library authentication failed"
-                    ) from None
+        """One read cycle and at most one explicit session-expiry relogin."""
+        if (remaining := self._provider_retry_at - monotonic()) > 0:
+            raise UpdateFailed(
+                self._failure_message, retry_after=remaining + 1
+            ) from None
+        try:
+            if self._needs_login:
                 await self._async_login()
-            except SolusAuthError:
-                raise ConfigEntryAuthFailed("Library authentication failed") from None
-            except SolusError:
-                raise UpdateFailed("Unable to update library data") from None
-        raise AssertionError("Unreachable refresh state")
+            try:
+                snapshot = await self._async_fetch_snapshot()
+            except SolusSessionExpired as error:
+                self._needs_login = True
+                if error.retry_after is not None:
+                    raise
+                await self._async_login()
+                snapshot = await self._async_fetch_snapshot()
+        except SolusError as error:
+            failure = self._failed_refresh(error)
+            if isinstance(error, SolusSessionExpired):
+                self._needs_login = True
+            elif isinstance(error, SolusAuthError):
+                raise ConfigEntryAuthFailed(self._failure_message) from None
+            raise failure from None
+        self._cooldowns.pop(self._entry.entry_id, None)
+        self._recovery_attempts = 0
+        self._recovery_deadline = None
+        self._provider_retry_at = 0.0
+        self._retry_after = None
+        self._last_update_error = None
+        self._error_category = None
+        self.last_exception = None
+        return snapshot
 
     async def _async_fetch_snapshot(self) -> LibrarySnapshot:
         rows = await self._client.async_get_loans(self._entry.data["card"])
@@ -168,15 +325,31 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
             if item.record_id and item.source
         )
         semaphore = asyncio.Semaphore(_ENRICHMENT_CONCURRENCY)
+        self._catalogue_blocked = None
         # Wait for every request before a recovery login changes client auth state.
         results = await asyncio.gather(
             *(self._async_catalogue(key, semaphore) for key in keys),
             return_exceptions=True,
         )
+        # Parallel errors may carry different cooldowns. Preserve every hint,
+        # even when a security or credential error has diagnostic precedence.
+        for result in results:
+            if isinstance(result, SolusError):
+                self._respect_retry_after(result)
+        # Security rejection must never be hidden by optional enrichment.
+        for result in results:
+            if isinstance(result, SolusSecurityError):
+                raise result
         # Credential rejection takes precedence over recoverable session expiry.
         for result in results:
             if isinstance(result, SolusAuthError) and not isinstance(
                 result, SolusSessionExpired
+            ):
+                raise result
+        # A rate limit must prevent a relogin prompted by a concurrent expiry.
+        for result in results:
+            if isinstance(result, SolusError) and (
+                result.retry_after is not None or result.status == 429
             ):
                 raise result
         for result in results:
@@ -206,11 +379,19 @@ class AxiellCoordinator(DataUpdateCoordinator[LibrarySnapshot]):
             if datetime.now(UTC) - cached.fetched_at < _CATALOGUE_TTL:
                 return cached.record
         async with semaphore:
+            if self._catalogue_blocked is not None:
+                raise self._catalogue_blocked
             try:
                 payload = await self._client.async_get_record(*key)
-            except SolusAuthError:
-                raise
-            except SolusError:
+            except SolusError as error:
+                if (
+                    isinstance(error, (SolusAuthError, SolusSecurityError))
+                    or error.retry_after is not None
+                    or error.status == 429
+                ):
+                    # Requests already in flight settle; queued requests stop.
+                    self._catalogue_blocked = error
+                    raise
                 return cached.record if cached else None
         if (
             payload is None

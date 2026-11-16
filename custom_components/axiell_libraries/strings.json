@@ -49,6 +49,17 @@
       "reconfigure_successful": "The PIN was updated."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Library polling",
+        "description": "Choose how often to refresh loans, from 30 to 1440 minutes. Temporary failures may trigger earlier recovery attempts.",
+        "data": {
+          "update_interval": "Update interval (minutes)"
+        }
+      }
+    }
+  },
   "selector": {
     "library": {
       "options": {
@@ -66,6 +77,14 @@
       },
       "overdue_loans": {
         "name": "Overdue loans"
+      },
+      "data_freshness": {
+        "name": "Data freshness",
+        "state": {
+          "fresh": "Fresh",
+          "stale": "Stale",
+          "unavailable": "Unavailable"
+        }
       }
     },
     "todo": {

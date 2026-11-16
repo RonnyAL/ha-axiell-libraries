@@ -369,19 +369,19 @@ async def test_probe_responses_create_entry_after_retry_with_one_device(hass):
         ("routing", "http", "routing/http/403", "cannot_connect"),
         ("bootstrap", "http", "bootstrap/http/403", "cannot_connect"),
         ("login_presession", "http", "login_presession/http/403", "invalid_auth"),
-        ("login_checksession", "http", "login_checksession/http/403", "invalid_auth"),
-        ("routing", "transport", "routing/transport", "cannot_connect"),
-        ("bootstrap", "transport", "bootstrap/transport", "cannot_connect"),
+        ("login_checksession", "http", "login_checksession/http/403", "cannot_connect"),
+        ("routing", "timeout", "routing/timeout", "cannot_connect"),
+        ("bootstrap", "timeout", "bootstrap/timeout", "cannot_connect"),
         (
             "login_presession",
-            "transport",
-            "login_presession/transport",
+            "timeout",
+            "login_presession/timeout",
             "cannot_connect",
         ),
         (
             "login_checksession",
-            "transport",
-            "login_checksession/transport",
+            "timeout",
+            "login_checksession/timeout",
             "cannot_connect",
         ),
         ("routing", "schema", "routing/response_schema", "cannot_connect"),
@@ -402,7 +402,7 @@ async def test_probe_responses_create_entry_after_retry_with_one_device(hass):
             "login_checksession",
             "api",
             "login_checksession/api_rejection",
-            "invalid_auth",
+            "cannot_connect",
         ),
         (
             "login_presession",
@@ -444,7 +444,7 @@ async def test_real_setup_diagnostics_and_retry_preserve_identity(
     secret = f"{CARD} {PIN} {DEVICE} TEST_TOKEN TEST_COOKIE https://private.example/"
     if kind == "http":
         response = {"status": 403, "body": secret}
-    elif kind == "transport":
+    elif kind == "timeout":
         response = {"exception": TimeoutError(secret)}
     elif kind == "schema":
         response = {"body": secret}

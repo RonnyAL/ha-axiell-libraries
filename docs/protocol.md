@@ -240,13 +240,32 @@ explicit successful empty account only. `async_get_record(record_id, source)`
 returns an object or `None` for an explicit empty record. Catalogue transport
 errors propagate so the coordinator can handle individual enrichment failures.
 All calls use a 20-second total timeout, no transport retries, and no automatic
-login retries. HTTP 401/403 from pre-session/check-session raises `SolusAuthError`;
-unauthenticated locator/routing/bootstrap HTTP rejection is a connection error,
-not evidence of a bad card/PIN. During an authenticated data request, HTTP
-401/403 clears the token and raises `SolusSessionExpired`, allowing the coordinator to attempt one recovery login.
+login retries. Only credential submission through `LoginPreSession` treats
+HTTP 401/403 as `SolusAuthError`; `LoginCheckSession` HTTP 401/403 raises
+`SolusProtocolError`, because failure to establish a session does not establish
+that the card/PIN was rejected. Unauthenticated locator/routing/bootstrap HTTP
+rejection is a connection error. During an authenticated data request, HTTP
+401/403 clears the token and raises `SolusSessionExpired`, allowing the
+coordinator to attempt one recovery login.
 Actual expiry codes inside JSON `d.status` are unverified: unknown unsuccessful
 statuses raise `SolusProtocolError` and never trigger speculative login loops.
 All public errors use static messages and suppress sensitive exception context.
+
+`SolusError.category` is one of `transport`, `timeout`, `rate_limit`, `server`,
+`credentials`, `session`, `protocol`, or `security`. `retryable` identifies
+failures eligible for a later read recovery cycle; it never permits automatic
+renewal replay. Timeouts, connection failures, HTTP 408/429/5xx, explicit session
+expiry, and JSON/schema protocol errors are recoverable. Other HTTP errors are
+not eligible for accelerated recovery, except the session-establishment
+401/403 case above. Credential rejection and security failures, including TLS
+certificate or fingerprint verification and rejected redirects/origins, are
+not retryable.
+
+HTTP errors carry optional `retry_after` seconds decoded from `Retry-After`
+integer delay or timezone-aware HTTP date. Past dates become zero; negative,
+fractional, malformed and nonfinite values are ignored. The raw header is never
+retained or exposed. These classifications and Retry-After formats are defensive
+HTTP handling tested offline, not newly observed Solus server responses.
 
 ## Explicit individual renewal (APK-derived, not live-tested)
 
@@ -351,36 +370,66 @@ failure. Provider errors produce static UI messages without logging exception
 text or account values. The PIN resides in HA config entry storage, which is
 not a dedicated secrets vault.
 
-For login JSON, only explicit `d.status: failure` is treated as credential
-rejection; this is the synthetic negative fixture assumption, not a verified
-upstream auth error code. Missing, malformed or unknown statuses raise
+For `LoginPreSession` JSON, only explicit `d.status: failure` is treated as
+credential rejection; this is the synthetic negative fixture assumption, not a
+verified upstream auth error code. Missing, malformed or unknown statuses raise
 `SolusProtocolError`, including during authentication, and are shown as provider
-failures instead of requesting a new PIN. Pre-session/check-session HTTP
-401/403 remains an explicit authentication rejection. Exact upstream negative status codes still require a
-local probe by the owner with credentials outside Git.
+failures instead of requesting a new PIN. A `LoginCheckSession` failure/error or
+HTTP 401/403 is a protocol failure, while pre-session HTTP 401/403 remains an
+explicit credential rejection. Exact upstream negative status codes still
+require a local probe by the owner with credentials outside Git.
 
 ## Coordinator refresh and catalogue policy
 
 Each config entry owns an `AxiellCoordinator` and its client/cache. Integration
-setup must create the client using the stored DeviceID and call
-`async_config_entry_first_refresh()`; the coordinator's `_async_setup` performs
-initial login, so setup must not log in separately. Subsequent manual and
-six-hour scheduled refreshes reuse that client and its in-memory session.
-Neither refresh nor authentication recovery constructs a new device identity.
+setup creates the client using the stored DeviceID and calls
+`async_config_entry_first_refresh()`; the first read cycle performs initial login.
+Subsequent manual and scheduled refreshes reuse the client/session. Options store
+`update_interval` in integer minutes (30–1440, default 360); old entries without
+options retain six hours. An update listener reschedules the existing coordinator
+without recreating its account identity, session or entities.
 
-Only explicit `SolusSessionExpired` triggers one recovery login and one complete
-refresh retry. Invalid credentials request reauthentication immediately. Metadata
-requests are settled before recovery starts, and credential rejection takes
-precedence if parallel requests report both rejection and expiry. A second
-expiry requests reauthentication; transport/protocol failures produce a static
-`UpdateFailed`. Failed loan updates retain the previous snapshot and mark the
-coordinator unavailable; an explicit successful `[]` replaces it with zero loans.
+Only explicit `SolusSessionExpired` permits an immediate recovery login and one
+complete reread, and a Retry-After on that response defers recovery. Invalid
+credentials request reauthentication immediately; a second expiry remains a
+recoverable session failure. Unknown JSON failure responses are protocol errors;
+no unverified payload marker is guessed to mean expiry. A failed login leaves the
+coordinator eligible to establish a session again on a later read cycle.
+
+The coordinator uses Core's `UpdateFailed(retry_after=...)` scheduler and retains
+its selected monotonic deadline when options reschedule the timer. At most three
+early recovery cycles follow a failed read: 60, 120, 240 seconds plus uniform 0–25%
+jitter, then the configured interval until a success resets the budget. There are
+no transport sleep/retry loops holding the operation lock. Initial setup failures
+use Core's setup-retry lifecycle, which also receives retry_after on the
+supported November versions. Retry-After lower bounds survive coordinator
+reconstruction in `hass.data` using only per-entry deadlines and finite diagnostics;
+no session, payload or credential is stored there. Expired cooldowns are pruned on
+construction, successful refresh removes them, and HA process restart clears them.
+
+Every valid Retry-After in a completed parallel catalogue batch contributes to
+the minimum wait. Security and credential errors have diagnostic precedence;
+rate limits precede session expiry so no recovery login bypasses a concurrent
+cooldown. In-flight catalogue requests settle before login; queued catalogue work
+stops on security, auth or rate-limiting errors. Renewal remains exactly one write
+per explicit consent attempt; any server cooldown also gates subsequent read-only
+reconciliation. Shutdown drains the shared operation lock and cancels Core timers.
+
+Temporary read failures retain the last successful snapshot and keep existing
+entities available with `data_stale=true`, its original `last_successful_refresh`,
+and safe category/reference `last_update_error`. The diagnostic data_freshness
+sensor distinguishes fresh/stale/unavailable. Credential/security failures make
+loan entities unavailable while the diagnostic remains visible. Fresh means the
+last completed authoritative read succeeded, not an age/connectivity guarantee.
+Only an explicit successful `[]` replaces loans with zero. No snapshot is persisted
+across restart. Core suppresses repeated error logs; callbacks still update changed
+diagnostics during consecutive failures.
 
 At the `LoansGet` boundary, every row must contain nonempty string `loanID` and
 `title` values. Loan IDs must be unique after trimming whitespace, using the
 same normalization as the loan model. Missing, malformed or duplicate identities
 reject the entire response with a static protocol error, preserving the previous
-snapshot and making entities unavailable instead of publishing blank or ambiguous
+snapshot and marking it stale instead of publishing blank or ambiguous
 to-do items. Missing or malformed `dueObject` and optional catalogue fields remain
 permissive. This is a defensive integration policy verified with synthetic
 responses, not a newly observed upstream guarantee.
@@ -439,18 +488,19 @@ without exposing credentials or recording HTTP bodies. The
 
 HA error descriptions interpolate only a fixed `stage/reason[/HTTP-status]`
 reference. Stages are `discovery`, `manual_lookup`, `routing`, `bootstrap`,
-`login_presession`, `login_checksession`, with `provider` for generic existing
-errors. Reasons are `transport`, `http`, `api_rejection`, `response_schema`,
-`missing_token` and `security`. Status is optional, an integer from 100 to 599;
+`login_presession`, `login_checksession`, `loans`, `catalogue`, and `renewal`,
+with `provider` for generic existing errors. Reasons are `transport`, `timeout`,
+`http`, `api_rejection`, `response_schema`, `missing_token` and `security`.
+Status is optional, an integer from 100 to 599;
 strings and booleans are excluded. The boundary revalidates these allowlists.
 Neither exception text nor provider status messages, bodies, URLs, headers,
 cookies, credentials, tokens or DeviceID are interpolated.
 
 Literal `failure`/`error` API statuses get an API-rejection reference, while
 missing, malformed or unrecognized statuses remain schema failures. Only the
-existing exact authentication `failure` and auth-stage HTTP 401/403 paths
-request card/PIN correction. An unverified API error does not imply bad PIN or
-JSON session expiry. Errors retain existing catchable SolusError subclasses and
+exact pre-session `failure` and pre-session HTTP 401/403 paths request card/PIN
+correction. An unverified API error does not imply bad PIN or JSON session expiry.
+Errors retain existing catchable SolusError subclasses and
 static production messages; arbitrary programming exceptions are not caught.
 
 For incomplete nearby results and authoritative Norwegian library names without

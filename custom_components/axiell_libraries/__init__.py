@@ -47,6 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bo
         await coordinator.async_config_entry_first_refresh()
         entry.runtime_data = coordinator
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        entry.async_on_unload(entry.add_update_listener(_async_update_options))
     except BaseException:
         # Shutdown drains writes before detach, including setup cancellation.
         if coordinator is not None:
@@ -55,6 +56,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bo
             session.detach()
         raise
     return True
+
+
+async def _async_update_options(hass: HomeAssistant, entry: AxiellConfigEntry) -> None:
+    """Apply the polling option without replacing the account client or identity."""
+    await entry.runtime_data.async_update_options()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: AxiellConfigEntry) -> bool:
@@ -87,3 +93,12 @@ class AxiellEntity(CoordinatorEntity[AxiellCoordinator]):
             manufacturer="Axiell / Solus",
             entry_type=DeviceEntryType.SERVICE,
         )
+
+    @property
+    def available(self) -> bool:
+        """Keep known loans visible with explicit freshness during temporary errors."""
+        return self.coordinator.snapshot_available
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return self.coordinator.freshness_attributes
