@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - Restore account-bound normalized loan snapshots as stale before a background
   refresh, retaining native no-cache setup/retry and credential/security withholding.

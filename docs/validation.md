@@ -7,7 +7,60 @@ library/card, persistent DeviceID, initially read-only Solus access, nearby disc
 manual LocationID. No redesign approval was needed. The original six task briefs came
 from the [approved plan](superpowers/plans/2026-11-13-axiell-libraries-v1.md).
 
-## Current: snapshot restoration and native refresh controls (unreleased)
+## Current: owner-authorized 0.6.0 release preparation
+
+The owner explicitly requested release on 2026-11-16 after independent review of
+[PR #10](https://github.com/RonnyAL/ha-axiell-libraries/pull/10), superseding its
+prior PR-only restriction for this release only. Prepared manifest/tag/title are
+0.6.0/v0.6.0/0.6.0. This preparation changes metadata, workflow version/path/marker
+values, release/Marketplace tests and current documentation only; feature
+behavior, historical notes and repository visibility remain unchanged.
+
+Prior feature CI passed **873 tests on each** official Core/`pytest-homeassistant`
+pair, 2026.11.0 and 2026.11.1, on Python 3.14.10, including Marketplace and real
+localhost cookie isolation. Each runtime reported five dependency deprecation
+warnings. Pinned Ruff 0.17.5 check/format and hassfest passed. These are prior
+feature results, not validation of this release-preparation revision. New full
+supported CI and independent release review are required before merge;
+publication repeats validation at the exact main SHA.
+
+Test-first release checks selected the new one-time workflow before changing
+manifest/workflows. The actual publication shell ran with an offline recording
+`gh`; no GitHub write or provider operation was performed. The first run reported
+**1 failed, 51 passed, 23 fixture errors in 2.37 seconds**: the manual default was
+still 0.5.1, and every one-time fixture asserted the new workflow was missing.
+After the version/path/marker update, the same command passed all 75 cases.
+
+Fresh local supplemental evidence:
+
+- `/tmp/axiell-supplemental/run-tests tests/test_release.py -q`:
+  **75 passed in 3.00 seconds**.
+- `/tmp/axiell-supplemental/run-tests --ignore=tests/test_marketplace.py -k
+  'not test_real_cookie_transport_isolated_in_ha_owned_sessions' -q`:
+  **856 passed, 2 deselected in 18.67 seconds**.
+- Local Ruff **0.16.8** whole-tree `check .`: `All checks passed!`;
+  `format --check .`: `70 files already formatted`.
+- `/home/ronny/vscode/projects/tesla/ha-tesla-fleet-telemetry/.venv/bin/python scripts/check_release.py v0.6.0`:
+  `Release tag and manifest agree: 0.6.0`; `git diff --check` passed.
+
+System `python3` is 3.13.5 and cannot parse the existing Python 3.14 exception
+syntax in the release guard; that attempted command failed with `SyntaxError`.
+The successful guard and supplemental tests use the available Python 3.14.7
+environment. Its Core 2026.9.3/custom-harness alias lacks Marketplace, and sandbox
+socket binding prevents two cookie-transport cases. No installation/network
+retry or weakened dependency/CI gate was used. Marketplace tests now model
+0.6.0 source installation and upgrades from both numeric/prefixed 0.5.1, equality
+with 0.6.0 and no downgrade from 0.7.0; supported CI must run these cases.
+The one-time workflow is identical to the previous publisher apart from the
+0.5.1-to-0.6.0 version/path/marker substitution; historical release notes are
+unchanged, and the integration code diff contains only the manifest version.
+
+0.6.0 installation, actual HA process restart/cache restoration, browser rendering,
+Norwegian frontend labels and live provider/renewal behavior remain owner-run
+checks. Prior-release authentication, aggregate sensors and Marketplace checks
+do not establish those results for 0.6.0.
+
+## Historical: snapshot restoration and native refresh controls feature validation
 
 Local branch `feat/snapshot-restoration` adds a private, atomic, account-bound
 normalized Store snapshot, restored stale before a background read; no cache
